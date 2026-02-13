@@ -1,0 +1,19 @@
+<Solution>
+  <Folder Name="/examples/">
+    <Project Path="examples/ConsoleChat/ConsoleChat.csproj" />
+    <Project Path="examples/McpDemo/McpDemo.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/MultiLlm.Core/MultiLlm.Core.csproj" />
+    <Project Path="src/MultiLlm.Extras.ImageProcessing/MultiLlm.Extras.ImageProcessing.csproj" />
+    <Project Path="src/MultiLlm.Providers.Codex/MultiLlm.Providers.Codex.csproj" />
+    <Project Path="src/MultiLlm.Providers.Ollama/MultiLlm.Providers.Ollama.csproj" />
+    <Project Path="src/MultiLlm.Providers.OpenAI/MultiLlm.Providers.OpenAI.csproj" />
+    <Project Path="src/MultiLlm.Providers.OpenAICompatible/MultiLlm.Providers.OpenAICompatible.csproj" />
+    <Project Path="src/MultiLlm.Tools.Mcp/MultiLlm.Tools.Mcp.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/MultiLlm.Core.Tests/MultiLlm.Core.Tests.csproj" />
+    <Project Path="tests/MultiLlm.Integration.Tests/MultiLlm.Integration.Tests.csproj" />
+  </Folder>
+</Solution>
