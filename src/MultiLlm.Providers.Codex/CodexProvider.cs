@@ -33,7 +33,8 @@ public sealed class CodexProvider : IModelProvider
     public async Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default)
     {
         var token = await ResolveAccessTokenAsync(cancellationToken).ConfigureAwait(false);
-        var provider = CreateInnerProvider(token, request.Model);
+        EnsureTokenCompatibleWithEndpoint(token);
+        var provider = CreateInnerProvider(token.AccessToken, request.Model);
         return await provider.ChatAsync(request, cancellationToken).ConfigureAwait(false);
     }
 
@@ -42,7 +43,8 @@ public sealed class CodexProvider : IModelProvider
         [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var token = await ResolveAccessTokenAsync(cancellationToken).ConfigureAwait(false);
-        var provider = CreateInnerProvider(token, request.Model);
+        EnsureTokenCompatibleWithEndpoint(token);
+        var provider = CreateInnerProvider(token.AccessToken, request.Model);
 
         await foreach (var delta in provider.ChatStreamAsync(request, cancellationToken).ConfigureAwait(false))
         {
@@ -50,7 +52,7 @@ public sealed class CodexProvider : IModelProvider
         }
     }
 
-    private async Task<string> ResolveAccessTokenAsync(CancellationToken cancellationToken)
+    private async Task<AuthToken> ResolveAccessTokenAsync(CancellationToken cancellationToken)
     {
         foreach (var backend in _enabledBackends)
         {
@@ -63,7 +65,29 @@ public sealed class CodexProvider : IModelProvider
             throw new InvalidOperationException("Codex token is missing after auth backend execution.");
         }
 
-        return token.AccessToken;
+        return token;
+    }
+
+    private void EnsureTokenCompatibleWithEndpoint(AuthToken token)
+    {
+        var isDeviceCodeToken = !string.IsNullOrWhiteSpace(token.RefreshToken);
+        if (!isDeviceCodeToken)
+        {
+            return;
+        }
+
+        if (!Uri.TryCreate(_options.BaseUrl, UriKind.Absolute, out var endpoint))
+        {
+            return;
+        }
+
+        if (string.Equals(endpoint.Host, "api.openai.com", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Вы используете ChatGPT device-code токен из Codex CLI с OpenAI-compatible endpoint (api.openai.com/v1). " +
+                "Для этого endpoint нужен API key. Запустите с --auth apikey (или OPENAI_API_KEY), " +
+                "либо используйте отдельный transport для ChatGPT backend API.");
+        }
     }
 
     private OpenAiCompatibleProvider CreateInnerProvider(string accessToken, string requestModel)

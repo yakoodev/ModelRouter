@@ -130,18 +130,25 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
 
         Console.Write("assistant> ");
 
-        if (options.UseStreaming)
+        try
         {
-            var completeText = await StreamAndCollectAsync(request, cancellationToken).ConfigureAwait(false);
-            _messages.Add(new Message(MessageRole.Assistant, [new TextPart(completeText)]));
-            Console.WriteLine();
-            return;
-        }
+            if (options.UseStreaming)
+            {
+                var completeText = await StreamAndCollectAsync(request, cancellationToken).ConfigureAwait(false);
+                _messages.Add(new Message(MessageRole.Assistant, [new TextPart(completeText)]));
+                Console.WriteLine();
+                return;
+            }
 
-        var response = await client.ChatAsync(request, cancellationToken).ConfigureAwait(false);
-        var responseText = ExtractText(response.Message);
-        Console.WriteLine(responseText);
-        _messages.Add(response.Message);
+            var response = await client.ChatAsync(request, cancellationToken).ConfigureAwait(false);
+            var responseText = ExtractText(response.Message);
+            Console.WriteLine(responseText);
+            _messages.Add(response.Message);
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"Ошибка запроса: {exception.Message}");
+        }
     }
 
     private async Task<string> StreamAndCollectAsync(ChatRequest request, CancellationToken cancellationToken)
