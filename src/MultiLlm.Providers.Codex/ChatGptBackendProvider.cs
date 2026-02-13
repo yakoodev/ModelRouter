@@ -31,7 +31,7 @@ internal sealed class ChatGptBackendProvider : IModelProvider
         var payload = BuildPayload(request, stream: false);
         using var httpRequest = CreateHttpRequest(payload);
         using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessOrThrowAsync(response, cancellationToken).ConfigureAwait(false);
 
         await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var document = await JsonDocument.ParseAsync(contentStream, cancellationToken: cancellationToken).ConfigureAwait(false);
@@ -50,7 +50,7 @@ internal sealed class ChatGptBackendProvider : IModelProvider
         var payload = BuildPayload(request, stream: true);
         using var httpRequest = CreateHttpRequest(payload);
         using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessOrThrowAsync(response, cancellationToken).ConfigureAwait(false);
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
         using var reader = new StreamReader(stream);
@@ -97,14 +97,18 @@ internal sealed class ChatGptBackendProvider : IModelProvider
 
     private object BuildPayload(ChatRequest request, bool stream)
     {
-        var input = request.Messages.Select(static message => new
-        {
-            role = MapRole(message.Role),
-            content = message.Parts
-                .OfType<TextPart>()
-                .Select(static part => new { type = "input_text", text = part.Text })
-                .ToArray()
-        }).Where(static item => item.content.Length > 0).ToArray();
+        var input = request.Messages
+            .Select(static message => new
+            {
+                type = "message",
+                role = MapRole(message.Role),
+                content = message.Parts
+                    .OfType<TextPart>()
+                    .Select(static part => new { type = "input_text", text = part.Text })
+                    .ToArray()
+            })
+            .Where(static item => item.content.Length > 0)
+            .ToArray();
 
         return new
         {
@@ -129,6 +133,18 @@ internal sealed class ChatGptBackendProvider : IModelProvider
     }
 
     private Uri BuildResponsesUri() => new(new Uri(_options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute), "responses");
+
+    private static async Task EnsureSuccessOrThrowAsync(HttpResponseMessage response, CancellationToken cancellationToken)
+    {
+        if (response.IsSuccessStatusCode)
+        {
+            return;
+        }
+
+        var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        var message = $"ChatGPT backend request failed: {(int)response.StatusCode} ({response.StatusCode}). Body: {body}";
+        throw new HttpRequestException(message, null, response.StatusCode);
+    }
 
     private static HttpClient CreateDefaultHttpClient(CodexProviderOptions options)
     {

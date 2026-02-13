@@ -1,5 +1,4 @@
 using System.Net;
-using System.Net.Http.Headers;
 using System.Text;
 using MultiLlm.Core.Auth;
 using MultiLlm.Core.Contracts;
@@ -22,6 +21,7 @@ public class CodexProviderChatGptBackendTests
             var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
             Assert.Contains("\"stream\":false", body, StringComparison.Ordinal);
             Assert.Contains("\"input\"", body, StringComparison.Ordinal);
+            Assert.Contains("\"type\":\"message\"", body, StringComparison.Ordinal);
 
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
