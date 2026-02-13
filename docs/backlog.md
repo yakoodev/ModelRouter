@@ -1,35 +1,27 @@
-# Декомпозиция ТЗ на задачи (Codex Web Ready)
+# Декомпозиция ТЗ на задачи (разбивка по файлам)
 
-Основной оперативный документ для работы агентом: `docs/codex-web-playbook.md`.
+Общий backlog разбит на отдельные task-файлы в каталоге `docs/tasks/`.
 
-## Правила исполнения
-- 1 задача = 1 PR = 1 законченный вертикальный срез.
-- Каждая задача должна иметь явный Definition of Done.
-- Без «пустых» заглушек в реализуемом срезе.
-- Все изменения через `dotnet test MultiLlm.slnx`.
+## Структура
+- `docs/tasks/todo/` — активные задачи.
+- `docs/tasks/done/` — завершённые задачи.
+- `docs/tasks/README.md` — правила жизненного цикла задачи.
 
-## Очередь задач
+## Правило
+После выполнения задачи и мержа PR соответствующий файл нужно перенести из `docs/tasks/todo/` в `docs/tasks/done/`.
 
-### Wave 1 — Core runtime
-1. Core Router + `LlmClient` + тесты маршрутизации.
-2. Нормализация instruction layers (`request > session > developer > system`) + тесты.
-3. Execution pipeline (hooks/events/correlation ids) + тесты.
+## Список задач
+1. `docs/tasks/todo/01-core-router-llmclient.md`
+2. `docs/tasks/todo/02-instruction-normalizer.md`
+3. `docs/tasks/todo/03-execution-pipeline-hooks.md`
+4. `docs/tasks/todo/04-auth-strategies-v1.md`
+5. `docs/tasks/todo/05-token-store-manual-injection.md`
+6. `docs/tasks/todo/06-openai-compatible-provider.md`
+7. `docs/tasks/todo/07-ollama-provider.md`
+8. `docs/tasks/todo/08-mcp-client-mvp.md`
+9. `docs/tasks/todo/09-image-file-pipeline.md`
+10. `docs/tasks/todo/10-codex-dev-only-auth-slot.md`
+11. `docs/tasks/todo/11-resilience-ops.md`
 
-### Wave 2 — Auth
-4. `NoAuth`, `ApiKeyAuth`, `BearerAuth`, `CustomHeadersAuth` + тесты.
-5. `ITokenStore` (in-memory) + manual token injection + тесты.
-
-### Wave 3 — Providers
-6. OpenAI-compatible provider (chat + stream) + integration tests.
-7. Ollama provider (native/compat) + integration tests на общий `ChatRequest`.
-
-### Wave 4 — MCP + multimodal
-8. MCP connect/list/call + demo + integration tests.
-9. `ImagePart`/`FilePart` end-to-end минимум через 2 провайдера.
-
-### Wave 5 — Codex dev-only + ops
-10. Codex `OfficialDeviceCodeBackend` + feature flag для experimental.
-11. Retry/backoff, timeout, rate limit, redaction + fault tests.
-
-## Готовые промпты
-См. раздел с шаблонами и готовыми prompt’ами в `docs/codex-web-playbook.md`.
+## Промпты для агента
+Шаблон и готовые prompt’ы: `docs/codex-web-playbook.md`.
