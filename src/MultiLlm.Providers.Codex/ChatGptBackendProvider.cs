@@ -123,7 +123,7 @@ internal sealed class ChatGptBackendProvider : IModelProvider
         var endpoint = BuildResponsesUri();
         var request = new HttpRequestMessage(HttpMethod.Post, endpoint)
         {
-            Content = new StringContent(JsonSerializer.Serialize(payload, JsonOptions), Encoding.UTF8, "application/json")
+            Content = CreateJsonContent(payload)
         };
 
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -133,6 +133,14 @@ internal sealed class ChatGptBackendProvider : IModelProvider
     }
 
     private Uri BuildResponsesUri() => new(new Uri(_options.BaseUrl.TrimEnd('/') + "/", UriKind.Absolute), "responses");
+
+    private static HttpContent CreateJsonContent(object payload)
+    {
+        var jsonBytes = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payload, JsonOptions));
+        var content = new ByteArrayContent(jsonBytes);
+        content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
+        return content;
+    }
 
     private static async Task EnsureSuccessOrThrowAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {

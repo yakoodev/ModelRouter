@@ -17,6 +17,7 @@ public class CodexProviderChatGptBackendTests
             Assert.Equal("https://chatgpt.com/backend-api/codex/responses", request.RequestUri!.ToString());
             Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
             Assert.Equal("device-token", request.Headers.Authorization?.Parameter);
+            Assert.Equal("application/json", request.Content?.Headers.ContentType?.MediaType);
 
             var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
             Assert.Contains("\"stream\":false", body, StringComparison.Ordinal);
