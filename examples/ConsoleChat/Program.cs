@@ -221,12 +221,12 @@ internal sealed record ConsoleChatOptions(
 
     public static void PrintUsage()
     {
-        Console.WriteLine("Пример запуска (через Codex auth):");
+        Console.WriteLine("Пример запуска (через Codex auth с API key в auth.json):");
         Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-mini --auth codex");
         Console.WriteLine("Пример запуска (через API ключ):");
         Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-mini --auth apikey --api-key <KEY>");
         Console.WriteLine("Опции: --provider, --base-url, --model, --stream, --auth [codex|apikey|none], --codex-home.");
-        Console.WriteLine("Env: LLM_MODEL, LLM_BASE_URL, OPENAI_API_KEY, CODEX_HOME.");
+        Console.WriteLine("Env: LLM_MODEL, LLM_BASE_URL, OPENAI_API_KEY, CODEX_HOME.\n        Device-code login может не положить OPENAI_API_KEY в auth.json.");
     }
 
     private static AuthMode ParseAuthMode(string? value)
@@ -296,15 +296,28 @@ internal sealed class CodexAuthResolver : IAuthResolver
             var json = File.ReadAllText(authFile);
             var auth = JsonSerializer.Deserialize<CodexAuthFile>(json);
 
-            if (string.IsNullOrWhiteSpace(auth?.OpenAiApiKey))
+            if (!string.IsNullOrWhiteSpace(auth?.OpenAiApiKey))
             {
-                error = $"В {authFile} нет OPENAI_API_KEY. Выполните вход через Codex CLI.";
+                token = auth.OpenAiApiKey;
+                error = null;
+                return true;
+            }
+
+            if (auth?.Tokens?.HasUsableTokens == true)
+            {
+                error =
+                    $"В {authFile} нет OPENAI_API_KEY, хотя есть ChatGPT device-code токены. " +
+                    "Для OpenAI-compatible API этого примера нужен API key. " +
+                    "Используйте --auth apikey (с --api-key/OPENAI_API_KEY) " +
+                    "или выполните вход Codex в режиме API key и повторите запуск.";
                 return false;
             }
 
-            token = auth.OpenAiApiKey;
-            error = null;
-            return true;
+            error =
+                $"В {authFile} нет OPENAI_API_KEY. " +
+                "Этот пример авторизуется через API key. " +
+                "Укажите --api-key/OPENAI_API_KEY или перелогиньтесь в Codex с API key.";
+            return false;
         }
         catch (Exception exception)
         {
@@ -334,6 +347,24 @@ internal sealed class CodexAuthResolver : IAuthResolver
     {
         [JsonPropertyName("OPENAI_API_KEY")]
         public string? OpenAiApiKey { get; init; }
+
+        [JsonPropertyName("auth_mode")]
+        public string? AuthMode { get; init; }
+
+        [JsonPropertyName("tokens")]
+        public CodexTokens? Tokens { get; init; }
+    }
+
+    private sealed class CodexTokens
+    {
+        [JsonPropertyName("access_token")]
+        public string? AccessToken { get; init; }
+
+        [JsonPropertyName("refresh_token")]
+        public string? RefreshToken { get; init; }
+
+        public bool HasUsableTokens =>
+            !string.IsNullOrWhiteSpace(AccessToken) || !string.IsNullOrWhiteSpace(RefreshToken);
     }
 }
 
