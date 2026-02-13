@@ -5,6 +5,17 @@ namespace MultiLlm.Providers.OpenAICompatible;
 
 internal static class OpenAiCompatibleMapper
 {
+    private const int MaxImageBytes = 20 * 1024 * 1024;
+    private const int MaxFileBytes = 32 * 1024 * 1024;
+
+    private static readonly HashSet<string> SupportedImageMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif"
+    };
+
     public static object BuildChatPayload(ChatRequest request, bool stream) => new
     {
         model = request.Model,
@@ -78,14 +89,7 @@ internal static class OpenAiCompatibleMapper
             ["type"] = "text",
             ["text"] = text.Text
         },
-        ImagePart image => new Dictionary<string, object>
-        {
-            ["type"] = "image_url",
-            ["image_url"] = new Dictionary<string, object>
-            {
-                ["url"] = $"data:{image.MimeType};base64,{Convert.ToBase64String(image.Content)}"
-            }
-        },
+        ImagePart image => MapImagePart(image),
         ToolCallPart toolCall => new Dictionary<string, object>
         {
             ["type"] = "tool_call",
@@ -100,14 +104,84 @@ internal static class OpenAiCompatibleMapper
             ["result"] = toolResult.ResultJson,
             ["is_error"] = toolResult.IsError
         },
-        FilePart file => new Dictionary<string, object>
-        {
-            ["type"] = "file",
-            ["mime_type"] = file.MimeType,
-            ["file_name"] = file.FileName
-        },
+        FilePart file => MapFilePart(file),
         _ => throw new NotSupportedException($"Message part '{part.GetType().Name}' is not supported by OpenAI-compatible payload mapper.")
     };
+
+    private static Dictionary<string, object> MapImagePart(ImagePart image)
+    {
+        if (!SupportedImageMimeTypes.Contains(image.MimeType))
+        {
+            throw new NotSupportedException($"Image mime type '{image.MimeType}' is not supported. Supported: {string.Join(", ", SupportedImageMimeTypes)}.");
+        }
+
+        if (image.Content.Length > MaxImageBytes)
+        {
+            throw new ArgumentException($"Image size exceeds maximum of {MaxImageBytes} bytes.", nameof(image));
+        }
+
+        return new Dictionary<string, object>
+        {
+            ["type"] = "image_url",
+            ["image_url"] = new Dictionary<string, object>
+            {
+                ["url"] = $"data:{image.MimeType};base64,{Convert.ToBase64String(image.Content)}"
+            }
+        };
+    }
+
+    private static Dictionary<string, object> MapFilePart(FilePart file)
+    {
+        if (string.IsNullOrWhiteSpace(file.FileName))
+        {
+            throw new ArgumentException("File name is required for FilePart.", nameof(file));
+        }
+
+        var fileBytes = ReadStreamWithLimit(file.Content, MaxFileBytes);
+
+        return new Dictionary<string, object>
+        {
+            ["type"] = "file",
+            ["file"] = new Dictionary<string, object>
+            {
+                ["file_name"] = file.FileName,
+                ["mime_type"] = file.MimeType,
+                ["file_data"] = $"data:{file.MimeType};base64,{Convert.ToBase64String(fileBytes)}"
+            }
+        };
+    }
+
+    private static byte[] ReadStreamWithLimit(Stream stream, int maxBytes)
+    {
+        if (stream.CanSeek)
+        {
+            stream.Position = 0;
+        }
+
+        using var ms = new MemoryStream();
+        var buffer = new byte[16 * 1024];
+        while (true)
+        {
+            var read = stream.Read(buffer, 0, buffer.Length);
+            if (read <= 0)
+            {
+                break;
+            }
+
+            ms.Write(buffer, 0, read);
+            if (ms.Length > maxBytes)
+            {
+                throw new ArgumentException($"File size exceeds maximum of {maxBytes} bytes.", nameof(stream));
+            }
+        }
+
+        if (stream.CanSeek)
+        {
+            stream.Position = 0;
+        }
+
+        return ms.ToArray();
+    }
 
     private static UsageStats? ParseUsage(JsonElement root)
     {
