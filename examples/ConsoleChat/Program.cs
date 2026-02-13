@@ -1,7 +1,6 @@
-using System.Text.Json;
-using System.Text.Json.Serialization;
 using MultiLlm.Core.Abstractions;
 using MultiLlm.Core.Contracts;
+using MultiLlm.Providers.Codex;
 using MultiLlm.Providers.OpenAICompatible;
 
 var options = ConsoleChatOptions.From(args, Environment.GetEnvironmentVariables());
@@ -15,40 +14,61 @@ if (!options.IsValid(out var validationError))
     return;
 }
 
-var authResolver = new CodexAuthResolver();
-if (!authResolver.TryResolveBearerToken(options, out var bearerToken, out var authError))
-{
-    Console.ForegroundColor = ConsoleColor.Red;
-    Console.WriteLine(authError);
-    Console.ResetColor();
-    ConsoleChatOptions.PrintUsage();
-    return;
-}
-
-var provider = new OpenAiCompatibleProvider(new OpenAiCompatibleProviderOptions
-{
-    ProviderId = options.ProviderId,
-    BaseUrl = options.BaseUrl,
-    Model = options.Model,
-    Headers = BuildHeaders(bearerToken)
-});
-
+var provider = ProviderFactory.Create(options);
 var client = new LlmClient([provider]);
 var session = new ConsoleChatSession(client, options);
 
 await session.RunAsync();
 
-static IReadOnlyDictionary<string, string> BuildHeaders(string? bearerToken)
+internal static class ProviderFactory
 {
-    if (string.IsNullOrWhiteSpace(bearerToken))
+    public static IModelProvider Create(ConsoleChatOptions options)
     {
-        return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        return options.AuthMode switch
+        {
+            AuthMode.Codex => CreateCodexProvider(options),
+            AuthMode.ApiKey => CreateOpenAiCompatibleProvider(options, requireApiKey: true),
+            _ => CreateOpenAiCompatibleProvider(options, requireApiKey: false)
+        };
     }
 
-    return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+    private static IModelProvider CreateCodexProvider(ConsoleChatOptions options)
     {
-        ["Authorization"] = $"Bearer {bearerToken}"
-    };
+        var codexOptions = new CodexProviderOptions(
+            IsDevelopment: true,
+            EnableExperimentalAuthAdapters: false)
+        {
+            ProviderId = options.ProviderId,
+            BaseUrl = options.BaseUrl,
+            Model = options.Model,
+            CodexHome = options.CodexHome
+        };
+
+        return new CodexProvider(codexOptions, [new OfficialDeviceCodeBackend(codexOptions)]);
+    }
+
+    private static IModelProvider CreateOpenAiCompatibleProvider(ConsoleChatOptions options, bool requireApiKey)
+    {
+        if (requireApiKey && string.IsNullOrWhiteSpace(options.ApiKey))
+        {
+            throw new InvalidOperationException("Для --auth apikey укажите --api-key или OPENAI_API_KEY.");
+        }
+
+        var headers = string.IsNullOrWhiteSpace(options.ApiKey)
+            ? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            : new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Authorization"] = $"Bearer {options.ApiKey}"
+            };
+
+        return new OpenAiCompatibleProvider(new OpenAiCompatibleProviderOptions
+        {
+            ProviderId = options.ProviderId,
+            BaseUrl = options.BaseUrl,
+            Model = options.Model,
+            Headers = headers
+        });
+    }
 }
 
 internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions options)
@@ -150,7 +170,7 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
 
     private void PrintBanner()
     {
-        Console.WriteLine("=== ConsoleChat (Codex auth ready) ===");
+        Console.WriteLine("=== ConsoleChat ===");
         Console.WriteLine($"Provider: {options.ProviderId}");
         Console.WriteLine($"Base URL: {options.BaseUrl}");
         Console.WriteLine($"Model: {options.Model}");
@@ -190,12 +210,13 @@ internal sealed record ConsoleChatOptions(
     {
         var parser = new ArgsParser(args);
 
-        var providerId = parser.GetString("provider") ?? "openai-compatible";
+        var authMode = ParseAuthMode(parser.GetString("auth"));
+        var defaultProvider = authMode is AuthMode.Codex ? "codex" : "openai-compatible";
+        var providerId = parser.GetString("provider") ?? defaultProvider;
         var baseUrl = parser.GetString("base-url") ?? environment[BaseUrlEnv]?.ToString() ?? "https://api.openai.com/v1";
         var model = parser.GetString("model") ?? environment[ModelEnv]?.ToString() ?? string.Empty;
         var apiKey = parser.GetString("api-key") ?? environment[ApiKeyEnv]?.ToString();
         var codexHome = parser.GetString("codex-home") ?? environment[CodexHomeEnv]?.ToString();
-        var authMode = ParseAuthMode(parser.GetString("auth"));
         var useStreaming = parser.GetBool("stream") ?? true;
 
         return new ConsoleChatOptions(providerId, baseUrl, model, apiKey, authMode, codexHome, useStreaming);
@@ -221,12 +242,12 @@ internal sealed record ConsoleChatOptions(
 
     public static void PrintUsage()
     {
-        Console.WriteLine("Пример запуска (через Codex auth с API key в auth.json):");
+        Console.WriteLine("Пример запуска (через codex cli login):");
         Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-mini --auth codex");
         Console.WriteLine("Пример запуска (через API ключ):");
         Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-mini --auth apikey --api-key <KEY>");
         Console.WriteLine("Опции: --provider, --base-url, --model, --stream, --auth [codex|apikey|none], --codex-home.");
-        Console.WriteLine("Env: LLM_MODEL, LLM_BASE_URL, OPENAI_API_KEY, CODEX_HOME.\n        Device-code login может не положить OPENAI_API_KEY в auth.json.");
+        Console.WriteLine("Env: LLM_MODEL, LLM_BASE_URL, OPENAI_API_KEY, CODEX_HOME.");
     }
 
     private static AuthMode ParseAuthMode(string? value)
@@ -244,127 +265,6 @@ internal sealed record ConsoleChatOptions(
             "none" => AuthMode.None,
             _ => AuthMode.Codex
         };
-    }
-}
-
-internal interface IAuthResolver
-{
-    bool TryResolveBearerToken(ConsoleChatOptions options, out string? token, out string? error);
-}
-
-internal sealed class CodexAuthResolver : IAuthResolver
-{
-    public bool TryResolveBearerToken(ConsoleChatOptions options, out string? token, out string? error)
-    {
-        token = null;
-
-        if (options.AuthMode is AuthMode.None)
-        {
-            error = null;
-            return true;
-        }
-
-        if (options.AuthMode is AuthMode.ApiKey)
-        {
-            if (string.IsNullOrWhiteSpace(options.ApiKey))
-            {
-                error = "Для --auth apikey укажите --api-key или OPENAI_API_KEY.";
-                return false;
-            }
-
-            token = options.ApiKey;
-            error = null;
-            return true;
-        }
-
-        if (!string.IsNullOrWhiteSpace(options.ApiKey))
-        {
-            token = options.ApiKey;
-            error = null;
-            return true;
-        }
-
-        var authFile = ResolveAuthFilePath(options.CodexHome);
-        if (!File.Exists(authFile))
-        {
-            error = $"Не найден Codex auth файл: {authFile}. Выполните 'codex login --device-auth' и повторите.";
-            return false;
-        }
-
-        try
-        {
-            var json = File.ReadAllText(authFile);
-            var auth = JsonSerializer.Deserialize<CodexAuthFile>(json);
-
-            if (!string.IsNullOrWhiteSpace(auth?.OpenAiApiKey))
-            {
-                token = auth.OpenAiApiKey;
-                error = null;
-                return true;
-            }
-
-            if (auth?.Tokens?.HasUsableTokens == true)
-            {
-                error =
-                    $"В {authFile} нет OPENAI_API_KEY, хотя есть ChatGPT device-code токены. " +
-                    "Для OpenAI-compatible API этого примера нужен API key. " +
-                    "Используйте --auth apikey (с --api-key/OPENAI_API_KEY) " +
-                    "или выполните вход Codex в режиме API key и повторите запуск.";
-                return false;
-            }
-
-            error =
-                $"В {authFile} нет OPENAI_API_KEY. " +
-                "Этот пример авторизуется через API key. " +
-                "Укажите --api-key/OPENAI_API_KEY или перелогиньтесь в Codex с API key.";
-            return false;
-        }
-        catch (Exception exception)
-        {
-            error = $"Не удалось прочитать Codex auth файл {authFile}: {exception.Message}";
-            return false;
-        }
-    }
-
-    private static string ResolveAuthFilePath(string? codexHome)
-    {
-        var home = codexHome;
-        if (string.IsNullOrWhiteSpace(home))
-        {
-            home = Environment.GetEnvironmentVariable("CODEX_HOME");
-        }
-
-        if (string.IsNullOrWhiteSpace(home))
-        {
-            var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            home = Path.Combine(userProfile, ".codex");
-        }
-
-        return Path.Combine(home, "auth.json");
-    }
-
-    private sealed class CodexAuthFile
-    {
-        [JsonPropertyName("OPENAI_API_KEY")]
-        public string? OpenAiApiKey { get; init; }
-
-        [JsonPropertyName("auth_mode")]
-        public string? AuthMode { get; init; }
-
-        [JsonPropertyName("tokens")]
-        public CodexTokens? Tokens { get; init; }
-    }
-
-    private sealed class CodexTokens
-    {
-        [JsonPropertyName("access_token")]
-        public string? AccessToken { get; init; }
-
-        [JsonPropertyName("refresh_token")]
-        public string? RefreshToken { get; init; }
-
-        public bool HasUsableTokens =>
-            !string.IsNullOrWhiteSpace(AccessToken) || !string.IsNullOrWhiteSpace(RefreshToken);
     }
 }
 
