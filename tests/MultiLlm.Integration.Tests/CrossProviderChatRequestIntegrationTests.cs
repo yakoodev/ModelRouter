@@ -44,6 +44,38 @@ public class CrossProviderChatRequestIntegrationTests
         Assert.Equal("cross-provider-model", server.LastRequestJson!.RootElement.GetProperty("model").GetString());
     }
 
+
+    [Theory]
+    [MemberData(nameof(Providers))]
+    public async Task ChatAsync_ImageAndFileParts_AreMappedAcrossProviders(string expectedProviderId, Func<Uri, IModelProvider> providerFactory)
+    {
+        using var server = new MockOpenAiCompatibleServer();
+        server.Start();
+
+        var provider = providerFactory(server.BaseUri);
+        using var fileStream = new MemoryStream("attachment"u8.ToArray());
+        var request = new ChatRequest(
+            Model: "cross-provider-model",
+            Messages:
+            [
+                new Message(
+                    MessageRole.User,
+                    [
+                        new TextPart("analyze attachments"),
+                        new ImagePart("image/png", [1, 2, 3, 4]),
+                        new FilePart("text/plain", "note.txt", fileStream)
+                    ])
+            ]);
+
+        var response = await provider.ChatAsync(request);
+
+        Assert.Equal(expectedProviderId, response.ProviderId);
+        var content = server.LastRequestJson!.RootElement.GetProperty("messages")[0].GetProperty("content");
+        Assert.Equal("image_url", content[1].GetProperty("type").GetString());
+        Assert.StartsWith("data:image/png;base64,", content[1].GetProperty("image_url").GetProperty("url").GetString());
+        Assert.Equal("file", content[2].GetProperty("type").GetString());
+        Assert.StartsWith("data:text/plain;base64,", content[2].GetProperty("file").GetProperty("file_data").GetString());
+    }
     [Theory]
     [MemberData(nameof(Providers))]
     public async Task ChatStreamAsync_CommonRequest_SupportsStreamingAcrossProviders(string expectedProviderId, Func<Uri, IModelProvider> providerFactory)

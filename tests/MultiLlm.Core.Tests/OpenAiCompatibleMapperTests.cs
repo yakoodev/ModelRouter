@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using MultiLlm.Core.Contracts;
 using MultiLlm.Providers.OpenAICompatible;
@@ -31,6 +32,57 @@ public class OpenAiCompatibleMapperTests
         Assert.Equal("policy", messages[0].GetProperty("content").GetString());
         Assert.Equal("user", messages[1].GetProperty("role").GetString());
         Assert.Equal("hello", messages[1].GetProperty("content").GetString());
+    }
+
+    [Fact]
+    public void BuildChatPayload_MapsImageAndFileParts()
+    {
+        using var fileStream = new MemoryStream(Encoding.UTF8.GetBytes("hello file"));
+        var request = new ChatRequest(
+            Model: "gpt-4.1-mini",
+            Messages:
+            [
+                new Message(MessageRole.User,
+                [
+                    new TextPart("describe"),
+                    new ImagePart("image/png", [1, 2, 3]),
+                    new FilePart("text/plain", "note.txt", fileStream)
+                ])
+            ]);
+
+        var payload = OpenAiCompatibleMapper.BuildChatPayload(request, stream: false);
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+
+        var content = document.RootElement.GetProperty("messages")[0].GetProperty("content");
+        Assert.Equal("image_url", content[1].GetProperty("type").GetString());
+        Assert.StartsWith("data:image/png;base64,", content[1].GetProperty("image_url").GetProperty("url").GetString());
+
+        Assert.Equal("file", content[2].GetProperty("type").GetString());
+        var file = content[2].GetProperty("file");
+        Assert.Equal("note.txt", file.GetProperty("file_name").GetString());
+        Assert.Equal("text/plain", file.GetProperty("mime_type").GetString());
+        Assert.StartsWith("data:text/plain;base64,", file.GetProperty("file_data").GetString());
+    }
+
+    [Fact]
+    public void BuildChatPayload_Throws_WhenImageMimeTypeNotSupported()
+    {
+        var request = new ChatRequest(
+            Model: "gpt-4.1-mini",
+            Messages: [new Message(MessageRole.User, [new ImagePart("image/tiff", [1, 2, 3])])]);
+
+        Assert.Throws<NotSupportedException>(() => OpenAiCompatibleMapper.BuildChatPayload(request, stream: false));
+    }
+
+    [Fact]
+    public void BuildChatPayload_Throws_WhenFileSizeExceedsLimit()
+    {
+        using var largeFile = new MemoryStream(new byte[33 * 1024 * 1024]);
+        var request = new ChatRequest(
+            Model: "gpt-4.1-mini",
+            Messages: [new Message(MessageRole.User, [new FilePart("application/octet-stream", "big.bin", largeFile)])]);
+
+        Assert.Throws<ArgumentException>(() => OpenAiCompatibleMapper.BuildChatPayload(request, stream: false));
     }
 
     [Fact]

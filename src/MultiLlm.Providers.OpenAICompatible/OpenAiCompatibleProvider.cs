@@ -16,7 +16,7 @@ public sealed class OpenAiCompatibleProvider : IModelProvider
     public OpenAiCompatibleProvider(OpenAiCompatibleProviderOptions options, HttpClient? httpClient = null)
     {
         _options = options;
-        _httpClient = httpClient ?? new HttpClient();
+        _httpClient = httpClient ?? CreateDefaultHttpClient(options);
         _httpClient.Timeout = options.Timeout;
     }
 
@@ -85,6 +85,18 @@ public sealed class OpenAiCompatibleProvider : IModelProvider
         }
 
         yield return new ChatDelta(ProviderId, payloadRequest.Model, string.Empty, IsFinal: true, request.RequestId, request.CorrelationId);
+    }
+
+
+    private static HttpClient CreateDefaultHttpClient(OpenAiCompatibleProviderOptions options)
+    {
+        var baseUri = new Uri(options.BaseUrl, UriKind.Absolute);
+        if (baseUri.IsLoopback)
+        {
+            return new HttpClient(new HttpClientHandler { UseProxy = false });
+        }
+
+        return new HttpClient();
     }
 
     private HttpRequestMessage CreateHttpRequestMessage(Uri endpoint, object payload)
