@@ -1,4 +1,5 @@
 using MultiLlm.Core.Contracts;
+using MultiLlm.Core.Instructions;
 
 namespace MultiLlm.Core.Abstractions;
 
@@ -65,6 +66,8 @@ public sealed class LlmClient(IEnumerable<IModelProvider> providers) : ILlmClien
             RequestId = request.RequestId ?? Guid.NewGuid().ToString("N"),
             CorrelationId = request.CorrelationId ?? Guid.NewGuid().ToString("N")
         };
+
+        pipelineRequest = InstructionNormalizer.Normalize(pipelineRequest);
 
         return new RoutedRequest(provider, pipelineRequest);
     }
