@@ -26,4 +26,5 @@
 - Optional возможности (image processing) — отдельным extras-пакетом.
 
 ## Следующие шаги
-См. декомпозицию в `docs/backlog.md`.
+- Декомпозиция задач: `docs/backlog.md`
+- Операционный процесс под Codex Web + готовые prompt-шаблоны: `docs/codex-web-playbook.md`
