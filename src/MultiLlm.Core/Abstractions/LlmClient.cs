@@ -1,19 +1,34 @@
 using MultiLlm.Core.Contracts;
+using MultiLlm.Core.Events;
 using MultiLlm.Core.Instructions;
 
 namespace MultiLlm.Core.Abstractions;
 
-public sealed class LlmClient(IEnumerable<IModelProvider> providers) : ILlmClient
+public sealed class LlmClient(IEnumerable<IModelProvider> providers, IEnumerable<ILlmEventHook>? hooks = null) : ILlmClient
 {
     private readonly IReadOnlyDictionary<string, IModelProvider> _providers = providers
         .ToDictionary(static provider => provider.ProviderId, StringComparer.OrdinalIgnoreCase);
+    private readonly IReadOnlyList<ILlmEventHook> _hooks = (hooks ?? []).ToArray();
 
     public async Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
         var routed = RouteRequest(request);
-        var response = await routed.Provider.ChatAsync(routed.Request, cancellationToken).ConfigureAwait(false);
+        await NotifyStartAsync(routed.Request, cancellationToken).ConfigureAwait(false);
+
+        ChatResponse response;
+        try
+        {
+            response = await routed.Provider.ChatAsync(routed.Request, cancellationToken).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            await NotifyErrorAsync(routed.Request, exception, cancellationToken).ConfigureAwait(false);
+            throw;
+        }
+
+        await NotifyEndAsync(routed.Request, cancellationToken).ConfigureAwait(false);
 
         return response with
         {
@@ -31,16 +46,68 @@ public sealed class LlmClient(IEnumerable<IModelProvider> providers) : ILlmClien
         cancellationToken.ThrowIfCancellationRequested();
 
         var routed = RouteRequest(request);
+        await NotifyStartAsync(routed.Request, cancellationToken).ConfigureAwait(false);
 
-        await foreach (var delta in routed.Provider.ChatStreamAsync(routed.Request, cancellationToken).WithCancellation(cancellationToken))
+        var stream = routed.Provider.ChatStreamAsync(routed.Request, cancellationToken).GetAsyncEnumerator(cancellationToken);
+
+        try
         {
-            yield return delta with
+            while (true)
             {
-                ProviderId = routed.Provider.ProviderId,
-                Model = routed.Request.Model,
-                RequestId = routed.Request.RequestId,
-                CorrelationId = routed.Request.CorrelationId
-            };
+                ChatDelta delta;
+                try
+                {
+                    if (!await stream.MoveNextAsync().ConfigureAwait(false))
+                    {
+                        break;
+                    }
+
+                    delta = stream.Current;
+                }
+                catch (Exception exception)
+                {
+                    await NotifyErrorAsync(routed.Request, exception, cancellationToken).ConfigureAwait(false);
+                    throw;
+                }
+
+                yield return delta with
+                {
+                    ProviderId = routed.Provider.ProviderId,
+                    Model = routed.Request.Model,
+                    RequestId = routed.Request.RequestId,
+                    CorrelationId = routed.Request.CorrelationId
+                };
+            }
+        }
+        finally
+        {
+            await stream.DisposeAsync().ConfigureAwait(false);
+        }
+
+        await NotifyEndAsync(routed.Request, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async ValueTask NotifyStartAsync(ChatRequest request, CancellationToken cancellationToken)
+    {
+        foreach (var hook in _hooks)
+        {
+            await hook.OnStartAsync(request.RequestId!, request.CorrelationId, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask NotifyEndAsync(ChatRequest request, CancellationToken cancellationToken)
+    {
+        foreach (var hook in _hooks)
+        {
+            await hook.OnEndAsync(request.RequestId!, request.CorrelationId, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private async ValueTask NotifyErrorAsync(ChatRequest request, Exception exception, CancellationToken cancellationToken)
+    {
+        foreach (var hook in _hooks)
+        {
+            await hook.OnErrorAsync(request.RequestId!, request.CorrelationId, exception, cancellationToken).ConfigureAwait(false);
         }
     }
 
