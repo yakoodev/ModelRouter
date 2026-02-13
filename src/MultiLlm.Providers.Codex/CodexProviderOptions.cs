@@ -6,11 +6,13 @@ public sealed record CodexProviderOptions(
 {
     public string ProviderId { get; init; } = "codex-dev-only";
 
-    public string BaseUrl { get; init; } = "https://api.openai.com/v1";
+    public string BaseUrl { get; init; } = "https://chatgpt.com/backend-api/codex/";
 
     public string? Model { get; init; }
 
     public string? CodexHome { get; init; }
+
+    public bool UseChatGptBackend { get; init; } = true;
 
     public TimeSpan Timeout { get; init; } = TimeSpan.FromSeconds(100);
 

@@ -41,7 +41,8 @@ internal static class ProviderFactory
             ProviderId = options.ProviderId,
             BaseUrl = options.BaseUrl,
             Model = options.Model,
-            CodexHome = options.CodexHome
+            CodexHome = options.CodexHome,
+            UseChatGptBackend = true
         };
 
         return new CodexProvider(codexOptions, [new OfficialDeviceCodeBackend(codexOptions)]);
@@ -220,7 +221,8 @@ internal sealed record ConsoleChatOptions(
         var authMode = ParseAuthMode(parser.GetString("auth"));
         var defaultProvider = authMode is AuthMode.Codex ? "codex" : "openai-compatible";
         var providerId = parser.GetString("provider") ?? defaultProvider;
-        var baseUrl = parser.GetString("base-url") ?? environment[BaseUrlEnv]?.ToString() ?? "https://api.openai.com/v1";
+        var defaultBaseUrl = authMode is AuthMode.Codex ? "https://chatgpt.com/backend-api/codex/" : "https://api.openai.com/v1";
+        var baseUrl = parser.GetString("base-url") ?? environment[BaseUrlEnv]?.ToString() ?? defaultBaseUrl;
         var model = parser.GetString("model") ?? environment[ModelEnv]?.ToString() ?? string.Empty;
         var apiKey = parser.GetString("api-key") ?? environment[ApiKeyEnv]?.ToString();
         var codexHome = parser.GetString("codex-home") ?? environment[CodexHomeEnv]?.ToString();
@@ -249,7 +251,7 @@ internal sealed record ConsoleChatOptions(
 
     public static void PrintUsage()
     {
-        Console.WriteLine("Пример запуска (через codex cli login):");
+        Console.WriteLine("Пример запуска (через codex cli login, ChatGPT backend):");
         Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-mini --auth codex");
         Console.WriteLine("Пример запуска (через API ключ):");
         Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-mini --auth apikey --api-key <KEY>");

@@ -12,7 +12,8 @@ public class CodexProviderEndpointCompatibilityTests
         var options = new CodexProviderOptions
         {
             BaseUrl = "https://api.openai.com/v1",
-            Model = "gpt-5-mini"
+            Model = "gpt-5-mini",
+            UseChatGptBackend = false
         };
 
         var tokenStore = new InMemoryTokenStore(
