@@ -1,17 +1,32 @@
 using MultiLlm.Core.Abstractions;
 using MultiLlm.Core.Contracts;
+using MultiLlm.Providers.OpenAICompatible;
 
 namespace MultiLlm.Providers.Ollama;
 
 public sealed class OllamaOpenAiCompatProvider : IModelProvider
 {
-    public string ProviderId => "ollama-openai-compat";
+    private readonly OpenAiCompatibleProvider _innerProvider;
 
-    public ProviderCapabilities Capabilities => new(true, true, true, true);
+    public OllamaOpenAiCompatProvider(OllamaOpenAiCompatProviderOptions options, HttpClient? httpClient = null)
+    {
+        _innerProvider = new OpenAiCompatibleProvider(new OpenAiCompatibleProviderOptions
+        {
+            ProviderId = "ollama-openai-compat",
+            BaseUrl = options.BaseUrl,
+            Model = options.Model,
+            Timeout = options.Timeout,
+            Headers = options.Headers
+        }, httpClient);
+    }
+
+    public string ProviderId => _innerProvider.ProviderId;
+
+    public ProviderCapabilities Capabilities => _innerProvider.Capabilities;
 
     public Task<ChatResponse> ChatAsync(ChatRequest request, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException("Ollama OpenAI-compatible adapter is not implemented yet.");
+        _innerProvider.ChatAsync(request, cancellationToken);
 
     public IAsyncEnumerable<ChatDelta> ChatStreamAsync(ChatRequest request, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException("Ollama OpenAI-compatible streaming is not implemented yet.");
+        _innerProvider.ChatStreamAsync(request, cancellationToken);
 }
