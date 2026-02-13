@@ -6,11 +6,21 @@ public sealed record InstructionLayers(
     string? Session = null,
     string? Request = null)
 {
+    public InstructionLayers Normalize() => new(
+        System: NormalizeValue(System),
+        Developer: NormalizeValue(Developer),
+        Session: NormalizeValue(Session),
+        Request: NormalizeValue(Request));
+
     public IEnumerable<string> OrderedByPriority()
     {
-        if (!string.IsNullOrWhiteSpace(Request)) yield return Request;
-        if (!string.IsNullOrWhiteSpace(Session)) yield return Session;
-        if (!string.IsNullOrWhiteSpace(Developer)) yield return Developer;
-        if (!string.IsNullOrWhiteSpace(System)) yield return System;
+        var normalized = Normalize();
+
+        if (normalized.Request is not null) yield return normalized.Request;
+        if (normalized.Session is not null) yield return normalized.Session;
+        if (normalized.Developer is not null) yield return normalized.Developer;
+        if (normalized.System is not null) yield return normalized.System;
     }
+
+    private static string? NormalizeValue(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

@@ -19,6 +19,23 @@ public class InstructionLayersTests
 
         Assert.Equal(["request", "session", "developer", "system"], ordered);
     }
+
+    [Fact]
+    public void Normalize_TrimValues_AndDropWhitespaceOnlyLayers()
+    {
+        var layers = new InstructionLayers(
+            System: "  system  ",
+            Developer: "   ",
+            Session: "\n session \n",
+            Request: "  request\t");
+
+        var normalized = layers.Normalize();
+
+        Assert.Equal("system", normalized.System);
+        Assert.Null(normalized.Developer);
+        Assert.Equal("session", normalized.Session);
+        Assert.Equal("request", normalized.Request);
+    }
 }
 
 public class LlmClientTests
@@ -74,6 +91,47 @@ public class LlmClientTests
             cts.Token);
 
         Assert.Equal(cts.Token, provider.LastToken);
+    }
+
+    [Fact]
+    public async Task ChatAsync_NormalizesInstructionsInCore_AndProducesDeterministicMessages()
+    {
+        var provider = new FakeProvider("openai");
+        var client = new LlmClient([provider]);
+
+        var request = new ChatRequest(
+            Model: "openai/gpt-4.1",
+            Messages: [new Message(MessageRole.User, [new TextPart("user")])],
+            Instructions: new InstructionLayers(
+                System: " system ",
+                Developer: " developer ",
+                Session: " session ",
+                Request: " request "));
+
+        await client.ChatAsync(request);
+
+        Assert.NotNull(provider.LastRequest);
+        var lastRequest = provider.LastRequest!;
+
+        Assert.Equal("request", lastRequest.Instructions!.Request);
+        Assert.Equal("session", lastRequest.Instructions.Session);
+        Assert.Equal("developer", lastRequest.Instructions.Developer);
+        Assert.Equal("system", lastRequest.Instructions.System);
+
+        Assert.Collection(
+            lastRequest.Messages,
+            message => AssertMessage(message, MessageRole.Developer, "[request]\nrequest"),
+            message => AssertMessage(message, MessageRole.Developer, "[session]\nsession"),
+            message => AssertMessage(message, MessageRole.Developer, "[developer]\ndeveloper"),
+            message => AssertMessage(message, MessageRole.System, "[system]\nsystem"),
+            message => AssertMessage(message, MessageRole.User, "user"));
+    }
+
+    private static void AssertMessage(Message message, MessageRole expectedRole, string expectedText)
+    {
+        Assert.Equal(expectedRole, message.Role);
+        var textPart = Assert.IsType<TextPart>(Assert.Single(message.Parts));
+        Assert.Equal(expectedText, textPart.Text);
     }
 
     private sealed class FakeProvider(string providerId) : IModelProvider
