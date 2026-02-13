@@ -4,8 +4,10 @@ namespace MultiLlm.Providers.Codex;
 
 public sealed class ExperimentalAuthBackend : ICodexAuthBackend
 {
-    public string BackendId => "experimental";
+    public const string BackendIdValue = "experimental";
+
+    public string BackendId => BackendIdValue;
 
     public ValueTask AuthenticateAsync(ITokenStore tokenStore, CancellationToken cancellationToken = default) =>
-        throw new NotImplementedException("Experimental adapters are extension points and disabled by default.");
+        throw new NotSupportedException("Experimental adapters are extension points and must be provided by an external plugin.");
 }
