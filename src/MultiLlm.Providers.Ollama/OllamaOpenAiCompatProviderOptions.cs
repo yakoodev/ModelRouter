@@ -1,10 +1,8 @@
-namespace MultiLlm.Providers.OpenAICompatible;
+namespace MultiLlm.Providers.Ollama;
 
-public sealed class OpenAiCompatibleProviderOptions
+public sealed class OllamaOpenAiCompatProviderOptions
 {
-    public string ProviderId { get; init; } = "openai-compatible";
-
-    public required string BaseUrl { get; init; }
+    public string BaseUrl { get; init; } = "http://localhost:11434/v1";
 
     public string? Model { get; init; }
 

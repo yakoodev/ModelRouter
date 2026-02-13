@@ -20,7 +20,7 @@ public sealed class OpenAiCompatibleProvider : IModelProvider
         _httpClient.Timeout = options.Timeout;
     }
 
-    public string ProviderId => "openai-compatible";
+    public string ProviderId => _options.ProviderId;
 
     public ProviderCapabilities Capabilities => new(true, true, true, true);
 
