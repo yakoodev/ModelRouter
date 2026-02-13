@@ -1,5 +1,6 @@
 using MultiLlm.Core.Abstractions;
 using MultiLlm.Core.Contracts;
+using MultiLlm.Core.Events;
 using MultiLlm.Core.Instructions;
 
 namespace MultiLlm.Core.Tests;
@@ -127,6 +128,124 @@ public class LlmClientTests
             message => AssertMessage(message, MessageRole.User, "user"));
     }
 
+
+    [Fact]
+    public async Task ChatAsync_CallsHooksInOrder_OnSuccess()
+    {
+        var provider = new FakeProvider("openai");
+        var hook = new RecordingHook();
+        var client = new LlmClient([provider], [hook]);
+
+        var response = await client.ChatAsync(new ChatRequest(
+            Model: "openai/gpt-4.1",
+            Messages: [new Message(MessageRole.User, [new TextPart("hi")])]));
+
+        Assert.Collection(
+            hook.Events,
+            ev =>
+            {
+                Assert.Equal("start", ev.Name);
+                Assert.Equal(response.RequestId, ev.RequestId);
+                Assert.Equal(response.CorrelationId, ev.CorrelationId);
+                Assert.Null(ev.Error);
+            },
+            ev =>
+            {
+                Assert.Equal("end", ev.Name);
+                Assert.Equal(response.RequestId, ev.RequestId);
+                Assert.Equal(response.CorrelationId, ev.CorrelationId);
+                Assert.Null(ev.Error);
+            });
+    }
+
+    [Fact]
+    public async Task ChatAsync_CallsErrorHookWithOriginalException_OnFailure()
+    {
+        var expectedException = new InvalidOperationException("boom");
+        var provider = new FakeProvider("openai") { ChatException = expectedException };
+        var hook = new RecordingHook();
+        var client = new LlmClient([provider], [hook]);
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(() => client.ChatAsync(new ChatRequest(
+            Model: "openai/gpt-4.1",
+            Messages: [new Message(MessageRole.User, [new TextPart("hi")])])));
+
+        Assert.Same(expectedException, thrown);
+
+        Assert.Collection(
+            hook.Events,
+            ev =>
+            {
+                Assert.Equal("start", ev.Name);
+                Assert.Null(ev.Error);
+            },
+            ev =>
+            {
+                Assert.Equal("error", ev.Name);
+                Assert.Same(expectedException, ev.Error);
+            });
+    }
+
+    [Fact]
+    public async Task ChatStreamAsync_CallsHooksInOrder_OnSuccess()
+    {
+        var provider = new FakeProvider("openai");
+        var hook = new RecordingHook();
+        var client = new LlmClient([provider], [hook]);
+
+        var deltas = await client.ChatStreamAsync(new ChatRequest(
+            Model: "openai/gpt-4.1",
+            Messages: [new Message(MessageRole.User, [new TextPart("hi")])])).ToListAsync();
+
+        Assert.Single(deltas);
+
+        Assert.Collection(
+            hook.Events,
+            ev =>
+            {
+                Assert.Equal("start", ev.Name);
+                Assert.Null(ev.Error);
+            },
+            ev =>
+            {
+                Assert.Equal("end", ev.Name);
+                Assert.Null(ev.Error);
+            });
+    }
+
+    [Fact]
+    public async Task ChatStreamAsync_CallsErrorHookWithOriginalException_OnFailure()
+    {
+        var expectedException = new InvalidOperationException("stream-boom");
+        var provider = new FakeProvider("openai") { StreamException = expectedException };
+        var hook = new RecordingHook();
+        var client = new LlmClient([provider], [hook]);
+
+        var thrown = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var _ in client.ChatStreamAsync(new ChatRequest(
+                               Model: "openai/gpt-4.1",
+                               Messages: [new Message(MessageRole.User, [new TextPart("hi")])])))
+            {
+            }
+        });
+
+        Assert.Same(expectedException, thrown);
+
+        Assert.Collection(
+            hook.Events,
+            ev =>
+            {
+                Assert.Equal("start", ev.Name);
+                Assert.Null(ev.Error);
+            },
+            ev =>
+            {
+                Assert.Equal("error", ev.Name);
+                Assert.Same(expectedException, ev.Error);
+            });
+    }
+
     private static void AssertMessage(Message message, MessageRole expectedRole, string expectedText)
     {
         Assert.Equal(expectedRole, message.Role);
@@ -136,6 +255,9 @@ public class LlmClientTests
 
     private sealed class FakeProvider(string providerId) : IModelProvider
     {
+        public Exception? ChatException { get; init; }
+
+        public Exception? StreamException { get; init; }
         public string ProviderId { get; } = providerId;
 
         public ProviderCapabilities Capabilities { get; } = new(true, true, true, true);
@@ -148,6 +270,11 @@ public class LlmClientTests
         {
             LastRequest = request;
             LastToken = cancellationToken;
+
+            if (ChatException is not null)
+            {
+                throw ChatException;
+            }
 
             return Task.FromResult(new ChatResponse(
                 ProviderId,
@@ -162,8 +289,38 @@ public class LlmClientTests
             LastRequest = request;
             LastToken = cancellationToken;
 
+            if (StreamException is not null)
+            {
+                throw StreamException;
+            }
+
             yield return new ChatDelta(ProviderId, request.Model, "ok", true, request.RequestId, request.CorrelationId);
             await Task.CompletedTask;
         }
     }
+
+    private sealed class RecordingHook : ILlmEventHook
+    {
+        public List<HookEvent> Events { get; } = [];
+
+        public ValueTask OnStartAsync(string requestId, string? correlationId, CancellationToken cancellationToken = default)
+        {
+            Events.Add(new HookEvent("start", requestId, correlationId, null));
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnEndAsync(string requestId, string? correlationId, CancellationToken cancellationToken = default)
+        {
+            Events.Add(new HookEvent("end", requestId, correlationId, null));
+            return ValueTask.CompletedTask;
+        }
+
+        public ValueTask OnErrorAsync(string requestId, string? correlationId, Exception exception, CancellationToken cancellationToken = default)
+        {
+            Events.Add(new HookEvent("error", requestId, correlationId, exception));
+            return ValueTask.CompletedTask;
+        }
+    }
+
+    private sealed record HookEvent(string Name, string RequestId, string? CorrelationId, Exception? Error);
 }
