@@ -104,7 +104,7 @@ internal sealed class ChatGptBackendProvider : IModelProvider
                 role = MapRole(message.Role),
                 content = message.Parts
                     .OfType<TextPart>()
-                    .Select(static part => new { type = "input_text", text = part.Text })
+                    .Select(part => new { type = ResolveContentType(message.Role), text = part.Text })
                     .ToArray()
             })
             .Where(static item => item.content.Length > 0)
@@ -155,6 +155,15 @@ internal sealed class ChatGptBackendProvider : IModelProvider
         }
 
         return new HttpClient();
+    }
+
+    private static string ResolveContentType(MessageRole role)
+    {
+        return role switch
+        {
+            MessageRole.Assistant => "output_text",
+            _ => "input_text"
+        };
     }
 
     private static string MapRole(MessageRole role) => role switch
