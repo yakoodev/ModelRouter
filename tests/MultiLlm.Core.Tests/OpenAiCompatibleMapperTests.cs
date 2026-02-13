@@ -34,6 +34,32 @@ public class OpenAiCompatibleMapperTests
     }
 
     [Fact]
+    public void BuildChatPayload_MapsToolCallAndToolResultParts()
+    {
+        var request = new ChatRequest(
+            Model: "gpt-4.1-mini",
+            Messages:
+            [
+                new Message(MessageRole.Assistant, [new ToolCallPart("weather", "{\"city\":\"Moscow\"}", "call-42")]),
+                new Message(MessageRole.Tool, [new ToolResultPart("call-42", "{\"temp\":21}")])
+            ]);
+
+        var payload = OpenAiCompatibleMapper.BuildChatPayload(request, stream: false);
+        using var document = JsonDocument.Parse(JsonSerializer.Serialize(payload));
+
+        var messages = document.RootElement.GetProperty("messages");
+        var toolCall = messages[0].GetProperty("content")[0];
+        Assert.Equal("tool_call", toolCall.GetProperty("type").GetString());
+        Assert.Equal("weather", toolCall.GetProperty("tool_name").GetString());
+        Assert.Equal("call-42", toolCall.GetProperty("call_id").GetString());
+
+        var toolResult = messages[1].GetProperty("content")[0];
+        Assert.Equal("tool_result", toolResult.GetProperty("type").GetString());
+        Assert.Equal("call-42", toolResult.GetProperty("call_id").GetString());
+        Assert.Equal("{\"temp\":21}", toolResult.GetProperty("result").GetString());
+    }
+
+    [Fact]
     public void ParseChatResponse_ReturnsUsageAndAssistantMessage()
     {
         const string responseJson = """
