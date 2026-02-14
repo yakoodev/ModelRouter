@@ -2,7 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MultiLlm.Core\MultiLlm.Core.csproj" />
-    <ProjectReference Include="..\..\src\MultiLlm.Providers.OpenAI\MultiLlm.Providers.OpenAI.csproj" />
+    <ProjectReference Include="..\..\src\MultiLlm.Providers.Codex\MultiLlm.Providers.Codex.csproj" />
+    <ProjectReference Include="..\..\src\MultiLlm.Providers.OpenAICompatible\MultiLlm.Providers.OpenAICompatible.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

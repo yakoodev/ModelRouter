@@ -10,7 +10,7 @@ public class CodexProviderAuthSlotTests
         var options = new CodexProviderOptions(IsDevelopment: false);
 
         var exception = Assert.Throws<InvalidOperationException>(() =>
-            new CodexProvider(options, [new OfficialDeviceCodeBackend(), new ExperimentalAuthBackend()]));
+            new CodexProvider(options, [new OfficialDeviceCodeBackend(options), new ExperimentalAuthBackend()]));
 
         Assert.Contains("dev-only", exception.Message, StringComparison.OrdinalIgnoreCase);
     }
@@ -18,9 +18,10 @@ public class CodexProviderAuthSlotTests
     [Fact]
     public void Constructor_UsesOnlyOfficialBackend_WhenExperimentalFlagIsDisabled()
     {
+        var options = new CodexProviderOptions(IsDevelopment: true, EnableExperimentalAuthAdapters: false);
         var provider = new CodexProvider(
-            new CodexProviderOptions(IsDevelopment: true, EnableExperimentalAuthAdapters: false),
-            [new OfficialDeviceCodeBackend(), new ExperimentalAuthBackend()]);
+            options,
+            [new OfficialDeviceCodeBackend(options), new ExperimentalAuthBackend()]);
 
         Assert.Equal([OfficialDeviceCodeBackend.BackendIdValue], provider.EnabledAuthBackendIds);
     }
@@ -28,9 +29,10 @@ public class CodexProviderAuthSlotTests
     [Fact]
     public void Constructor_EnablesExperimentalBackend_WhenFlagIsEnabled()
     {
+        var options = new CodexProviderOptions(IsDevelopment: true, EnableExperimentalAuthAdapters: true);
         var provider = new CodexProvider(
-            new CodexProviderOptions(IsDevelopment: true, EnableExperimentalAuthAdapters: true),
-            [new OfficialDeviceCodeBackend(), new ExperimentalAuthBackend()]);
+            options,
+            [new OfficialDeviceCodeBackend(options), new ExperimentalAuthBackend()]);
 
         Assert.Equal(
             [OfficialDeviceCodeBackend.BackendIdValue, ExperimentalAuthBackend.BackendIdValue],
