@@ -97,7 +97,22 @@ internal sealed class ChatGptBackendProvider : IModelProvider
 
     private object BuildPayload(ChatRequest request, bool stream)
     {
+        // 1) Собираем инструкции из System + Developer
+        var instructions = string.Join("\n\n", request.Messages
+            .Where(m => m.Role is MessageRole.System or MessageRole.Developer)
+            .SelectMany(m => m.Parts.OfType<TextPart>())
+            .Select(p => p.Text)
+            .Where(t => !string.IsNullOrWhiteSpace(t)));
+
+        if (string.IsNullOrWhiteSpace(instructions))
+        {
+            // Дефолт — чтобы бекенд не истерил "Instructions are required"
+            instructions = "You are a helpful assistant.";
+        }
+
+        // 2) В input оставляем только user/assistant (без system/developer)
         var input = request.Messages
+            .Where(m => m.Role is MessageRole.User or MessageRole.Assistant)
             .Select(static message => new
             {
                 type = "message",
@@ -113,10 +128,13 @@ internal sealed class ChatGptBackendProvider : IModelProvider
         return new
         {
             model = request.Model,
+            instructions,
             input,
-            stream
+            stream,
+            store = false
         };
     }
+
 
     private HttpRequestMessage CreateHttpRequest(object payload)
     {
