@@ -5,7 +5,16 @@ using MultiLlm.Providers.OpenAICompatible;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-var options = ConsoleChatOptions.From(args, Environment.GetEnvironmentVariables());
+var environment = Environment.GetEnvironmentVariables();
+var parser = new ArgsParser(args);
+
+if (parser.Has("help") || parser.Has("h"))
+{
+    ConsoleChatOptions.PrintUsage();
+    return;
+}
+
+var options = ConsoleChatSetup.ResolveOptions(parser, environment);
 
 if (!options.IsValid(out var validationError))
 {
@@ -16,25 +25,223 @@ if (!options.IsValid(out var validationError))
     return;
 }
 
-var provider = ProviderFactory.Create(options);
-var client = new LlmClient([provider]);
+var client = ClientFactory.Create(options);
 var session = new ConsoleChatSession(client, options);
 
 await session.RunAsync();
 
-internal static class ProviderFactory
+internal static class ConsoleChatSetup
 {
-    public static IModelProvider Create(ConsoleChatOptions options)
+    public static ConsoleChatOptions ResolveOptions(ArgsParser parser, System.Collections.IDictionary environment)
     {
-        return options.AuthMode switch
+        return HasDirectLaunchArgs(parser)
+            ? ConsoleChatOptions.From(parser, environment)
+            : ResolveOptionsInteractively(parser, environment);
+    }
+
+    private static bool HasDirectLaunchArgs(ArgsParser parser)
+    {
+        return parser.Has("model") && parser.Has("auth");
+    }
+
+    private static ConsoleChatOptions ResolveOptionsInteractively(ArgsParser parser, System.Collections.IDictionary environment)
+    {
+        Console.WriteLine("=== Interactive Route Setup ===");
+        Console.WriteLine("Provide --model and --auth for direct run, or configure route here.");
+        Console.WriteLine();
+
+        while (true)
         {
-            AuthMode.Codex => CreateCodexProvider(options),
-            AuthMode.ApiKey => CreateOpenAiCompatibleProvider(options, requireApiKey: true),
-            _ => CreateOpenAiCompatibleProvider(options, requireApiKey: false)
+            var authMode = PromptAuthMode(parser.GetString("auth"));
+            var defaults = GetDefaults(authMode);
+
+            var providerId = PromptString(
+                "Provider id",
+                parser.GetString("provider") ?? defaults.ProviderId);
+
+            var baseUrl = PromptString(
+                "Base URL",
+                parser.GetString("base-url") ?? environment[ConsoleChatOptions.BaseUrlEnv]?.ToString() ?? defaults.BaseUrl);
+
+            var model = PromptString(
+                "Model",
+                parser.GetString("model") ?? environment[ConsoleChatOptions.ModelEnv]?.ToString() ?? defaults.Model);
+
+            var apiKey = parser.GetString("api-key") ?? environment[ConsoleChatOptions.ApiKeyEnv]?.ToString();
+            if (authMode is AuthMode.ApiKey)
+            {
+                apiKey = PromptString("API key", apiKey, allowEmpty: false);
+            }
+
+            var codexHome = parser.GetString("codex-home") ?? environment[ConsoleChatOptions.CodexHomeEnv]?.ToString();
+            if (authMode is AuthMode.Codex)
+            {
+                codexHome = PromptString("Codex home (optional)", codexHome, allowEmpty: true);
+            }
+
+            var useStreaming = PromptBool("Streaming", parser.GetBool("stream") ?? true);
+
+            var options = new ConsoleChatOptions(
+                providerId,
+                baseUrl,
+                model,
+                apiKey,
+                authMode,
+                codexHome,
+                useStreaming);
+
+            if (options.IsValid(out var error))
+            {
+                return options;
+            }
+
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine(error);
+            Console.ResetColor();
+            Console.WriteLine("Please retry setup.");
+            Console.WriteLine();
+        }
+    }
+
+    private static (string ProviderId, string BaseUrl, string Model) GetDefaults(AuthMode authMode)
+    {
+        return authMode switch
+        {
+            AuthMode.Codex => ("codex", "https://chatgpt.com/backend-api/codex/", "gpt-5-codex"),
+            AuthMode.ApiKey => ("openai-compatible", "https://api.openai.com/v1", "gpt-5-mini"),
+            _ => ("openai-compatible", "http://localhost:11434/v1", "llama3.1:8b")
         };
     }
 
-    private static IModelProvider CreateCodexProvider(ConsoleChatOptions options)
+    private static AuthMode PromptAuthMode(string? currentValue)
+    {
+        var current = ConsoleChatOptions.ParseAuthMode(currentValue);
+
+        while (true)
+        {
+            Console.WriteLine("Choose route/auth mode:");
+            Console.WriteLine("1) codex  (ChatGPT backend via Codex login)");
+            Console.WriteLine("2) apikey (OpenAI-compatible API key)");
+            Console.WriteLine("3) none   (OpenAI-compatible endpoint without auth)");
+
+            var defaultNumber = current switch
+            {
+                AuthMode.Codex => "1",
+                AuthMode.ApiKey => "2",
+                _ => "3"
+            };
+
+            Console.Write($"Select [default {defaultNumber}]: ");
+            var raw = Console.ReadLine()?.Trim();
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return current;
+            }
+
+            if (raw == "1")
+            {
+                return AuthMode.Codex;
+            }
+
+            if (raw == "2")
+            {
+                return AuthMode.ApiKey;
+            }
+
+            if (raw == "3")
+            {
+                return AuthMode.None;
+            }
+
+            var parsed = ConsoleChatOptions.ParseAuthMode(raw, defaultValue: AuthMode.None);
+            if (parsed is AuthMode.Codex or AuthMode.ApiKey or AuthMode.None)
+            {
+                return parsed;
+            }
+
+            Console.WriteLine("Invalid selection.");
+        }
+    }
+
+    private static string PromptString(string label, string? defaultValue, bool allowEmpty = false)
+    {
+        while (true)
+        {
+            Console.Write($"{label}{FormatDefault(defaultValue)}: ");
+            var raw = Console.ReadLine();
+            if (!string.IsNullOrWhiteSpace(raw))
+            {
+                return raw.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(defaultValue))
+            {
+                return defaultValue.Trim();
+            }
+
+            if (allowEmpty)
+            {
+                return string.Empty;
+            }
+
+            Console.WriteLine($"{label} is required.");
+        }
+    }
+
+    private static bool PromptBool(string label, bool defaultValue)
+    {
+        while (true)
+        {
+            var suffix = defaultValue ? "" : " (default: n)";
+            Console.Write($"{label} [Y/n]{suffix}: ");
+            var raw = Console.ReadLine()?.Trim();
+
+            if (string.IsNullOrWhiteSpace(raw))
+            {
+                return defaultValue;
+            }
+
+            if (raw.Equals("y", StringComparison.OrdinalIgnoreCase) ||
+                raw.Equals("yes", StringComparison.OrdinalIgnoreCase) ||
+                raw.Equals("true", StringComparison.OrdinalIgnoreCase) ||
+                raw == "1")
+            {
+                return true;
+            }
+
+            if (raw.Equals("n", StringComparison.OrdinalIgnoreCase) ||
+                raw.Equals("no", StringComparison.OrdinalIgnoreCase) ||
+                raw.Equals("false", StringComparison.OrdinalIgnoreCase) ||
+                raw == "0")
+            {
+                return false;
+            }
+
+            Console.WriteLine("Enter y or n.");
+        }
+    }
+
+    private static string FormatDefault(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? string.Empty : $" [default: {value}]";
+    }
+}
+
+internal static class ClientFactory
+{
+    public static ILlmClient Create(ConsoleChatOptions options)
+    {
+        var builder = LlmClientBuilder.Create();
+
+        return options.AuthMode switch
+        {
+            AuthMode.Codex => ConfigureCodex(builder, options).Build(),
+            AuthMode.ApiKey => ConfigureOpenAiCompatible(builder, options, requireApiKey: true).Build(),
+            _ => ConfigureOpenAiCompatible(builder, options, requireApiKey: false).Build()
+        };
+    }
+
+    private static LlmClientBuilder ConfigureCodex(LlmClientBuilder builder, ConsoleChatOptions options)
     {
         var codexOptions = new CodexProviderOptions(
             IsDevelopment: true,
@@ -47,14 +254,17 @@ internal static class ProviderFactory
             UseChatGptBackend = true
         };
 
-        return new CodexProvider(codexOptions, [new OfficialDeviceCodeBackend(codexOptions)]);
+        return builder.Configure(codexOptions);
     }
 
-    private static IModelProvider CreateOpenAiCompatibleProvider(ConsoleChatOptions options, bool requireApiKey)
+    private static LlmClientBuilder ConfigureOpenAiCompatible(
+        LlmClientBuilder builder,
+        ConsoleChatOptions options,
+        bool requireApiKey)
     {
         if (requireApiKey && string.IsNullOrWhiteSpace(options.ApiKey))
         {
-            throw new InvalidOperationException("Для --auth apikey укажите --api-key или OPENAI_API_KEY.");
+            throw new InvalidOperationException("For --auth apikey provide --api-key or OPENAI_API_KEY.");
         }
 
         var headers = string.IsNullOrWhiteSpace(options.ApiKey)
@@ -64,7 +274,7 @@ internal static class ProviderFactory
                 ["Authorization"] = $"Bearer {options.ApiKey}"
             };
 
-        return new OpenAiCompatibleProvider(new OpenAiCompatibleProviderOptions
+        return builder.Configure(new OpenAiCompatibleProviderOptions
         {
             ProviderId = options.ProviderId,
             BaseUrl = options.BaseUrl,
@@ -110,7 +320,7 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
         if (string.Equals(input, "/clear", StringComparison.OrdinalIgnoreCase))
         {
             _messages.Clear();
-            Console.WriteLine("История чата очищена.");
+            Console.WriteLine("Chat history cleared.");
             return true;
         }
 
@@ -161,7 +371,7 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
 
                 if (attachedImagesCount > 0)
                 {
-                    Console.WriteLine($"(к сообщению было прикреплено изображений: {attachedImagesCount})");
+                    Console.WriteLine($"(attached images: {attachedImagesCount})");
                 }
 
                 return;
@@ -174,12 +384,12 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
 
             if (attachedImagesCount > 0)
             {
-                Console.WriteLine($"(к сообщению было прикреплено изображений: {attachedImagesCount})");
+                Console.WriteLine($"(attached images: {attachedImagesCount})");
             }
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"Ошибка запроса: {exception.Message}");
+            Console.WriteLine($"Request error: {exception.Message}");
         }
     }
 
@@ -204,7 +414,7 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
     private static string ExtractText(Message message)
     {
         var text = string.Concat(message.Parts.OfType<TextPart>().Select(static part => part.Text));
-        return string.IsNullOrWhiteSpace(text) ? "(пустой ответ от модели)" : text;
+        return string.IsNullOrWhiteSpace(text) ? "(empty model response)" : text;
     }
 
     private void PrintBanner()
@@ -220,8 +430,8 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
 
     private static void PrintCommands()
     {
-        Console.WriteLine("Команды: /help, /clear, /exit, /image-file <путь>, /image-clipboard");
-        Console.WriteLine("Загрузите одно или несколько изображений, затем отправьте текст — картинки уйдут вместе с этим сообщением.");
+        Console.WriteLine("Commands: /help, /clear, /exit, /image-file <path>, /image-clipboard");
+        Console.WriteLine("Attach one or more images, then send text; images will be sent with that message.");
     }
 
     private void HandleImageFileCommand(string input)
@@ -232,20 +442,20 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
 
         if (string.IsNullOrWhiteSpace(rawPath))
         {
-            Console.Write("Путь к файлу изображения: ");
+            Console.Write("Image file path: ");
             rawPath = Console.ReadLine()?.Trim() ?? string.Empty;
         }
 
         if (string.IsNullOrWhiteSpace(rawPath))
         {
-            Console.WriteLine("Путь не указан.");
+            Console.WriteLine("Path was not provided.");
             return;
         }
 
         var normalizedPath = rawPath.Trim('"');
         if (!File.Exists(normalizedPath))
         {
-            Console.WriteLine($"Файл не найден: {normalizedPath}");
+            Console.WriteLine($"File not found: {normalizedPath}");
             return;
         }
 
@@ -256,7 +466,7 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
         }
 
         _pendingImages.Add(imagePart!);
-        Console.WriteLine($"Изображение добавлено: {Path.GetFileName(normalizedPath)} (ожидает отправки)");
+        Console.WriteLine($"Image queued: {Path.GetFileName(normalizedPath)}");
     }
 
     private void HandleImageClipboardCommand()
@@ -268,7 +478,7 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
         }
 
         _pendingImages.Add(imagePart!);
-        Console.WriteLine("Изображение из буфера обмена добавлено (ожидает отправки).");
+        Console.WriteLine("Clipboard image queued.");
     }
 }
 
@@ -288,15 +498,19 @@ internal sealed record ConsoleChatOptions(
     string? CodexHome,
     bool UseStreaming)
 {
-    private const string BaseUrlEnv = "LLM_BASE_URL";
-    private const string ModelEnv = "LLM_MODEL";
-    private const string ApiKeyEnv = "OPENAI_API_KEY";
-    private const string CodexHomeEnv = "CODEX_HOME";
+    internal const string BaseUrlEnv = "LLM_BASE_URL";
+    internal const string ModelEnv = "LLM_MODEL";
+    internal const string ApiKeyEnv = "OPENAI_API_KEY";
+    internal const string CodexHomeEnv = "CODEX_HOME";
 
     public static ConsoleChatOptions From(string[] args, System.Collections.IDictionary environment)
     {
         var parser = new ArgsParser(args);
+        return From(parser, environment);
+    }
 
+    public static ConsoleChatOptions From(ArgsParser parser, System.Collections.IDictionary environment)
+    {
         var authMode = ParseAuthMode(parser.GetString("auth"));
         var defaultProvider = authMode is AuthMode.Codex ? "codex" : "openai-compatible";
         var providerId = parser.GetString("provider") ?? defaultProvider;
@@ -314,13 +528,19 @@ internal sealed record ConsoleChatOptions(
     {
         if (string.IsNullOrWhiteSpace(Model))
         {
-            error = $"Не задана модель. Укажите --model или переменную окружения {ModelEnv}.";
+            error = $"Model is required. Set --model or {ModelEnv}.";
             return false;
         }
 
         if (!Uri.TryCreate(BaseUrl, UriKind.Absolute, out _))
         {
-            error = "Некорректный --base-url.";
+            error = "Invalid --base-url.";
+            return false;
+        }
+
+        if (AuthMode is AuthMode.ApiKey && string.IsNullOrWhiteSpace(ApiKey))
+        {
+            error = $"For --auth apikey set --api-key or {ApiKeyEnv}.";
             return false;
         }
 
@@ -330,20 +550,24 @@ internal sealed record ConsoleChatOptions(
 
     public static void PrintUsage()
     {
-        Console.WriteLine("Пример запуска (через codex cli login, ChatGPT backend):");
+        Console.WriteLine("Direct launch examples:");
         Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-codex --auth codex");
-        Console.WriteLine("Пример запуска (через API ключ):");
         Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-mini --auth apikey --api-key <KEY>");
-        Console.WriteLine("Опции: --provider, --base-url, --model, --stream, --auth [codex|apikey|none], --codex-home.");
-        Console.WriteLine("Env: LLM_MODEL, LLM_BASE_URL, OPENAI_API_KEY, CODEX_HOME.");
-        Console.WriteLine("В чате: /image-file <путь> или /image-clipboard для прикрепления изображения к следующему сообщению.");
+        Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model llama3.1:8b --auth none --base-url http://localhost:11434/v1");
+        Console.WriteLine();
+        Console.WriteLine("Interactive setup:");
+        Console.WriteLine("dotnet run --project examples/ConsoleChat");
+        Console.WriteLine();
+        Console.WriteLine("Options: --provider, --base-url, --model, --stream, --auth [codex|apikey|none], --codex-home.");
+        Console.WriteLine($"Env: {ModelEnv}, {BaseUrlEnv}, {ApiKeyEnv}, {CodexHomeEnv}.");
+        Console.WriteLine("In chat: /image-file <path> or /image-clipboard.");
     }
 
-    private static AuthMode ParseAuthMode(string? value)
+    public static AuthMode ParseAuthMode(string? value, AuthMode defaultValue = AuthMode.Codex)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
-            return AuthMode.Codex;
+            return defaultValue;
         }
 
         return value.Trim().ToLowerInvariant() switch
@@ -352,7 +576,7 @@ internal sealed record ConsoleChatOptions(
             "apikey" => AuthMode.ApiKey,
             "api-key" => AuthMode.ApiKey,
             "none" => AuthMode.None,
-            _ => AuthMode.Codex
+            _ => defaultValue
         };
     }
 }
@@ -376,7 +600,7 @@ internal static class ImageLoader
         var extension = Path.GetExtension(path);
         if (!SupportedImageExtensions.Contains(extension))
         {
-            error = "Поддерживаются только: .png, .jpg, .jpeg, .webp, .gif.";
+            error = "Supported formats: .png, .jpg, .jpeg, .webp, .gif.";
             return false;
         }
 
@@ -397,7 +621,7 @@ internal static class ImageLoader
         }
         catch (Exception exception)
         {
-            error = $"Не удалось прочитать файл изображения: {exception.Message}";
+            error = $"Failed to read image file: {exception.Message}";
             return false;
         }
     }
@@ -409,7 +633,7 @@ internal static class ImageLoader
 
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            error = "Буфер обмена с изображениями сейчас поддерживается только на Windows.";
+            error = "Clipboard images are currently supported only on Windows.";
             return false;
         }
 
@@ -438,7 +662,7 @@ internal static class ImageLoader
             using var process = Process.Start(startInfo);
             if (process is null)
             {
-                error = "Не удалось запустить powershell для чтения буфера обмена.";
+                error = "Failed to start powershell for clipboard read.";
                 return false;
             }
 
@@ -449,21 +673,21 @@ internal static class ImageLoader
 
             if (process.ExitCode == 10)
             {
-                error = "В буфере обмена нет изображения.";
+                error = "Clipboard does not contain an image.";
                 return false;
             }
 
             if (process.ExitCode != 0)
             {
                 error = string.IsNullOrWhiteSpace(stderr)
-                    ? $"Ошибка чтения буфера обмена, код: {process.ExitCode}."
-                    : $"Ошибка чтения буфера обмена: {stderr.Trim()}";
+                    ? $"Clipboard read error, code: {process.ExitCode}."
+                    : $"Clipboard read error: {stderr.Trim()}";
                 return false;
             }
 
             if (ms.Length == 0)
             {
-                error = "В буфере обмена не найдено изображение.";
+                error = "No image bytes found in clipboard.";
                 return false;
             }
 
@@ -472,7 +696,7 @@ internal static class ImageLoader
         }
         catch (Exception exception)
         {
-            error = $"Не удалось получить изображение из буфера обмена: {exception.Message}";
+            error = $"Failed to get clipboard image: {exception.Message}";
             return false;
         }
     }
@@ -481,6 +705,8 @@ internal static class ImageLoader
 internal sealed class ArgsParser(string[] args)
 {
     private readonly Dictionary<string, string> _values = Parse(args);
+
+    public bool Has(string key) => _values.ContainsKey(key);
 
     public string? GetString(string key) => _values.TryGetValue(key, out var value) ? value : null;
 

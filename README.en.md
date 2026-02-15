@@ -70,7 +70,13 @@ dotnet test MultiLlm.slnx
 
 ## ConsoleChat Examples
 
-Codex mode:
+Interactive setup (configure route in-app):
+
+```bash
+dotnet run --project examples/ConsoleChat
+```
+
+Codex mode (direct launch):
 
 ```bash
 dotnet run --project examples/ConsoleChat -- --model gpt-5-codex --auth codex
@@ -86,6 +92,19 @@ Local endpoint without auth:
 
 ```bash
 dotnet run --project examples/ConsoleChat -- --model llama3.1:8b --auth none --base-url http://localhost:11434/v1
+```
+
+Builder-style provider configuration:
+
+```csharp
+using MultiLlm.Core.Abstractions;
+using MultiLlm.Providers.Codex;
+using MultiLlm.Providers.Ollama;
+
+var client = LlmClientBuilder.Create()
+    .Configure(new CodexProviderOptions { ProviderId = "codex", Model = "gpt-5-codex" })
+    .Configure(new OllamaProviderOptions { ProviderId = "ollama", Model = "llama3.1:8b" })
+    .Build();
 ```
 
 ## MCP Example
