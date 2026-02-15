@@ -70,7 +70,13 @@ dotnet test MultiLlm.slnx
 
 ## ConsoleChat Examples
 
-Codex mode:
+Interactive setup (configure route in-app):
+
+```bash
+dotnet run --project examples/ConsoleChat
+```
+
+Codex mode (direct launch):
 
 ```bash
 dotnet run --project examples/ConsoleChat -- --model gpt-5-codex --auth codex

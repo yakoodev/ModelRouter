@@ -235,7 +235,12 @@ Console.WriteLine(text);
 
 ## 10. РџСЂРёРјРµСЂС‹ Р·Р°РїСѓСЃРєР°
 
-Codex:
+Интерактивный запуск (настройка роута в приложении):
+```bash
+dotnet run --project examples/ConsoleChat
+```
+
+Codex (прямой запуск):
 ```bash
 dotnet run --project examples/ConsoleChat -- --model gpt-5-codex --auth codex
 ```
@@ -290,3 +295,4 @@ dotnet run --project examples/McpDemo
 
 - Technical specification: `MultiLlm_TZ.ModelRouter.md`
 - Codex workflow notes: `docs/codex-web-playbook.md`
+
