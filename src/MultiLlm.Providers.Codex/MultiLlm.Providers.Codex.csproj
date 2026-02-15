@@ -9,6 +9,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>MultiLlm.Provider.Codex</PackageId>
+    <Description>Codex provider for MultiLlm with development-only authentication backend integration.</Description>
   </PropertyGroup>
 
 </Project>

@@ -9,6 +9,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>MultiLlm.Provider.OpenAI</PackageId>
+    <Description>OpenAI provider for MultiLlm built on top of the official OpenAI .NET SDK.</Description>
   </PropertyGroup>
 
 </Project>

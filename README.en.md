@@ -68,6 +68,19 @@ Test:
 dotnet test MultiLlm.slnx
 ```
 
+Pack NuGet packages (core + providers):
+
+```bash
+dotnet pack MultiLlm.slnx -c Release
+```
+
+Produced packages:
+- `MultiLlm` (core contracts and client)
+- `MultiLlm.Provider.OpenAI`
+- `MultiLlm.Provider.OpenAICompatible`
+- `MultiLlm.Provider.Ollama`
+- `MultiLlm.Provider.Codex`
+
 ## ConsoleChat Examples
 
 Interactive setup (configure route in-app):
