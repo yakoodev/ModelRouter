@@ -33,6 +33,8 @@ English version: `README.en.md`
   - resilience pipeline в `LlmClient` (retry/backoff/timeout/concurrency/rate delay),
   - instruction layers (`system`, `developer`, `session`, `request`),
   - hooks (`OnStart`, `OnEnd`, `OnError`) + редактирование секретов.
+- `MultiLlm.Providers.OpenAI`:
+  - ����������� .NET SDK adapter (sync + streaming),
 - `MultiLlm.Providers.OpenAICompatible`:
   - sync chat (`/chat/completions`),
   - streaming SSE (`data: ...`, `[DONE]`),
@@ -50,7 +52,6 @@ English version: `README.en.md`
   - `examples/McpDemo`.
 
 ### Не завершено
-- `OpenAiProvider` пока `NotImplementedException`.
 - `OllamaNativeProvider` пока `NotImplementedException`.
 - `MultiLlm.Extras.ImageProcessing` содержит контракт, без полного pipeline.
 
@@ -159,7 +160,7 @@ Console.WriteLine(text);
 - `OllamaNativeProvider` пока не реализован.
 
 ### OpenAI
-- `OpenAiProvider` пока не реализован.
+- `OpenAiProvider` implemented via official OpenAI .NET SDK (sync + streaming).
 
 ### Auth-стратегии в Core
 - `NoAuth`
@@ -290,7 +291,7 @@ dotnet run --project examples/McpDemo
 
 ## 12. Ограничения
 
-- OpenAI official provider и Ollama native provider не реализованы.
+- Ollama native provider not implemented yet.
 - Image processing extras пока на раннем этапе.
 - Нет отдельного DI-пакета с extension methods для полной автоконфигурации.
 

@@ -1,7 +1,8 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\MultiLlm.Core\MultiLlm.Core.csproj" />
+    <PackageReference Include="OpenAI" Version="2.5.0" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -11,3 +12,4 @@
   </PropertyGroup>
 
 </Project>
+
