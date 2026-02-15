@@ -12,13 +12,13 @@ Implemented:
 - `MultiLlm.Core` contracts and routing (`providerId/model`),
 - resilience pipeline (`retry`, backoff, timeout, concurrency, min delay),
 - instruction layers (`system`, `developer`, `session`, `request`),
+- OpenAI provider via official .NET SDK (sync + streaming),
 - OpenAI-compatible provider (sync + streaming),
 - Codex provider with ChatGPT backend adapter and auth backend slot,
 - MCP stdio client,
 - Console and MCP demo applications.
 
 Not implemented yet:
-- `OpenAiProvider` (official SDK adapter),
 - `OllamaNativeProvider`,
 - full image processing pipeline in extras package.
 

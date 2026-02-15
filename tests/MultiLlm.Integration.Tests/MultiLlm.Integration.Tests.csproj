@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\MultiLlm.Core\MultiLlm.Core.csproj" />
+    <ProjectReference Include="..\..\src\MultiLlm.Providers.OpenAI\MultiLlm.Providers.OpenAI.csproj" />
     <ProjectReference Include="..\..\src\MultiLlm.Providers.OpenAICompatible\MultiLlm.Providers.OpenAICompatible.csproj" />
     <ProjectReference Include="..\..\src\MultiLlm.Providers.Ollama\MultiLlm.Providers.Ollama.csproj" />
     <ProjectReference Include="..\..\src\MultiLlm.Tools.Mcp\MultiLlm.Tools.Mcp.csproj" />
