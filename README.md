@@ -1,74 +1,72 @@
 # ModelRouter / MultiLlm
 
-Единая .NET-библиотека для маршрутизации чатовых запросов к нескольким LLM-провайдерам через общий контракт:
+Русскоязычная основная документация проекта.  
+English version: `README.en.md`
+
+`ModelRouter` (`MultiLlm`) — .NET 10 библиотека с единым контрактом для нескольких LLM-провайдеров:
 - OpenAI-compatible endpoints (включая локальные и self-hosted),
 - Ollama через OpenAI-compatible интерфейс,
-- Codex (dev-only, через `codex login` и `~/.codex/auth.json`),
+- Codex (dev-only, через `codex login`/`auth.json`),
 - MCP tools клиент по stdio.
 
-Проект таргетирует `net10.0` и построен модульно: `Core` + отдельные provider-пакеты + tooling.
-
 ## Содержание
-- [1. Текущий статус реализации](#1-текущий-статус-реализации)
+- [1. Текущий статус](#1-текущий-статус)
 - [2. Архитектура](#2-архитектура)
 - [3. Структура репозитория](#3-структура-репозитория)
 - [4. Быстрый старт](#4-быстрый-старт)
-- [5. Базовое использование API](#5-базовое-использование-api)
-- [6. Провайдеры и режимы авторизации](#6-провайдеры-и-режимы-авторизации)
+- [5. Пример использования API](#5-пример-использования-api)
+- [6. Провайдеры и авторизация](#6-провайдеры-и-авторизация)
 - [7. Контракты Core](#7-контракты-core)
-- [8. Устойчивость, лимиты и hooks](#8-устойчивость-лимиты-и-hooks)
-- [9. MCP tools](#9-mcp-tools)
-- [10. Примеры](#10-примеры)
-- [11. Тестирование](#11-тестирование)
-- [12. Ограничения и roadmap](#12-ограничения-и-roadmap)
+- [8. Устойчивость и hooks](#8-устойчивость-и-hooks)
+- [9. MCP](#9-mcp)
+- [10. Примеры запуска](#10-примеры-запуска)
+- [11. Тесты](#11-тесты)
+- [12. Ограничения](#12-ограничения)
+- [13. Git/Codex push setup](#13-gitcodex-push-setup)
 
-## 1. Текущий статус реализации
+## 1. Текущий статус
 
 ### Реализовано
 - `MultiLlm.Core`:
   - единые контракты (`ChatRequest`, `ChatResponse`, `ChatDelta`, `Message`, `MessagePart`),
-  - роутинг по модели формата `providerId/model`,
-  - retry/backoff/timeout/concurrency/rate-delay в `LlmClient`,
-  - instruction layers (`system`, `developer`, `session`, `request`) с нормализацией,
-  - hooks (`OnStart`, `OnEnd`, `OnError`) и редактирование секретов в ошибках.
+  - роутинг модели формата `providerId/model`,
+  - resilience pipeline в `LlmClient` (retry/backoff/timeout/concurrency/rate delay),
+  - instruction layers (`system`, `developer`, `session`, `request`),
+  - hooks (`OnStart`, `OnEnd`, `OnError`) + редактирование секретов.
 - `MultiLlm.Providers.OpenAICompatible`:
   - sync chat (`/chat/completions`),
-  - streaming через SSE (`data: ...`, `[DONE]`),
-  - маппинг message parts в OpenAI-compatible payload.
+  - streaming SSE (`data: ...`, `[DONE]`),
+  - поддержка `TextPart`, `ImagePart`, `FilePart`, tool parts.
 - `MultiLlm.Providers.Codex`:
-  - dev-only runtime guard,
-  - backend slot для auth (`official-device-code` + optional experimental),
-  - чтение токена/API key из `auth.json` Codex CLI,
-  - ChatGPT backend адаптер.
+  - dev-only guard,
+  - auth backend slot (`official-device-code` + optional experimental),
+  - ChatGPT backend adapter.
 - `MultiLlm.Providers.Ollama`:
-  - `OllamaOpenAiCompatProvider` как обертка над OpenAI-compatible провайдером.
+  - `OllamaOpenAiCompatProvider` (обертка над OpenAI-compatible).
 - `MultiLlm.Tools.Mcp`:
-  - stdio JSON-RPC клиент,
-  - `initialize`, `tools/list`, `tools/call`.
+  - stdio JSON-RPC client (`initialize`, `tools/list`, `tools/call`).
 - Примеры:
-  - `examples/ConsoleChat` (interactive chat),
-  - `examples/McpDemo` (поднятие mock MCP server + вызов tool).
+  - `examples/ConsoleChat`,
+  - `examples/McpDemo`.
 
-### Пока заглушки / не завершено
-- `MultiLlm.Providers.OpenAI.OpenAiProvider` выбрасывает `NotImplementedException`.
-- `MultiLlm.Providers.Ollama.OllamaNativeProvider` выбрасывает `NotImplementedException`.
-- `MultiLlm.Extras.ImageProcessing` содержит контракт, но без полноценной реализации пайплайна.
+### Не завершено
+- `OpenAiProvider` пока `NotImplementedException`.
+- `OllamaNativeProvider` пока `NotImplementedException`.
+- `MultiLlm.Extras.ImageProcessing` содержит контракт, без полного pipeline.
 
 ## 2. Архитектура
 
-Ключевая идея: приложение работает только с `ILlmClient`, а конкретный backend выбирается через префикс в `ChatRequest.Model`.
-
-Пример:
+Клиентский код работает с `ILlmClient`, а провайдер определяется по `ChatRequest.Model`:
 - `openai-compatible/gpt-4.1-mini`
-- `codex/gpt-5-mini`
+- `codex/gpt-5-codex`
 - `ollama-openai-compat/llama3.1:8b`
 
-Внутри `LlmClient`:
-- из `providerId/model` выделяется `providerId`,
-- запрашивается нужный `IModelProvider`,
-- `InstructionNormalizer` добавляет инструкции в начало `Messages`,
-- применяется resilience pipeline,
-- на выход проставляются `ProviderId`, `Model`, `RequestId`, `CorrelationId`.
+`LlmClient`:
+- выделяет `providerId` из `providerId/model`,
+- выбирает `IModelProvider`,
+- нормализует инструкции (`InstructionNormalizer`),
+- применяет resilience-настройки,
+- выставляет метаданные (`ProviderId`, `RequestId`, `CorrelationId`).
 
 ## 3. Структура репозитория
 
@@ -89,26 +87,27 @@
   /MultiLlm.Integration.Tests
 /docs
   codex-web-playbook.md
+  codex-git-setup.md
 ```
 
 ## 4. Быстрый старт
 
-### Требования
+Требования:
 - .NET SDK с поддержкой `net10.0`.
 
-### Сборка
+Сборка:
 
 ```bash
 dotnet build MultiLlm.slnx
 ```
 
-### Запуск тестов
+Тесты:
 
 ```bash
 dotnet test MultiLlm.slnx
 ```
 
-## 5. Базовое использование API
+## 5. Пример использования API
 
 ```csharp
 using MultiLlm.Core.Abstractions;
@@ -132,7 +131,7 @@ var request = new ChatRequest(
     Model: "openai-compatible/gpt-4.1-mini",
     Messages:
     [
-        new Message(MessageRole.User, [new TextPart("Сделай краткое резюме текста...")])
+        new Message(MessageRole.User, [new TextPart("Сделай краткое резюме...")])
     ]);
 
 var response = await client.ChatAsync(request);
@@ -142,37 +141,36 @@ Console.WriteLine(text);
 
 Для stream-режима используйте `await foreach` по `client.ChatStreamAsync(request)`.
 
-## 6. Провайдеры и режимы авторизации
+## 6. Провайдеры и авторизация
 
-### OpenAI-compatible (`MultiLlm.Providers.OpenAICompatible`)
-- Реальный рабочий HTTP-провайдер к `POST {baseUrl}/chat/completions`.
-- Авторизация передается через `Headers` (например, `Authorization: Bearer ...`).
+### OpenAI-compatible
+- Реальный HTTP-провайдер к `POST {baseUrl}/chat/completions`.
+- Авторизация через `Headers` (например, `Authorization: Bearer ...`).
 
-### Codex (`MultiLlm.Providers.Codex`, dev-only)
-- Предназначен для development-сценариев.
+### Codex (dev-only)
 - По умолчанию использует `OfficialDeviceCodeBackend`, который читает:
   - `OPENAI_API_KEY`, либо
   - `tokens.access_token` из `CODEX_HOME/auth.json` (или `~/.codex/auth.json`).
-- При `IsDevelopment = false` выбрасывается исключение (runtime guard).
-- `EnableExperimentalAuthAdapters` включает дополнительный backend-слот, если backend зарегистрирован.
+- При `IsDevelopment = false` выбрасывается исключение.
+- `EnableExperimentalAuthAdapters` включает дополнительный backend-слот (если backend зарегистрирован).
 
 ### Ollama
-- `OllamaOpenAiCompatProvider` работает через совместимый OpenAI endpoint Ollama.
+- `OllamaOpenAiCompatProvider` работает через совместимый OpenAI endpoint.
 - `OllamaNativeProvider` пока не реализован.
 
 ### OpenAI
-- `OpenAiProvider` пока не реализован (планируется адаптер поверх official SDK).
+- `OpenAiProvider` пока не реализован.
 
-### Доступные auth-стратегии в Core
+### Auth-стратегии в Core
 - `NoAuth`
 - `ApiKeyAuth`
 - `BearerAuth`
 - `CustomHeadersAuth`
-- `ITokenStore` + `InMemoryTokenStore` для хранения токенов/refresh token.
+- `ITokenStore` + `InMemoryTokenStore`
 
 ## 7. Контракты Core
 
-### Основные интерфейсы
+### Интерфейсы
 - `ILlmClient`
   - `Task<ChatResponse> ChatAsync(ChatRequest, CancellationToken)`
   - `IAsyncEnumerable<ChatDelta> ChatStreamAsync(ChatRequest, CancellationToken)`
@@ -184,10 +182,10 @@ Console.WriteLine(text);
 
 ### Chat-модели
 - `ChatRequest`:
-  - `Model` в формате `providerId/model`,
+  - `Model` (`providerId/model`),
   - `Messages`,
   - `Instructions`,
-  - опционально `RequestId`, `CorrelationId`.
+  - `RequestId`, `CorrelationId` (опционально).
 - `Message`:
   - `Role`: `System`, `Developer`, `User`, `Assistant`, `Tool`,
   - `Parts`: массив `MessagePart`.
@@ -199,94 +197,96 @@ Console.WriteLine(text);
   - `ToolResultPart`
 
 ### Инструкции
-- `InstructionLayers` поддерживает 4 слоя: `system`, `developer`, `session`, `request`.
-- При нормализации добавляются префиксные сообщения с приоритетом:
-  - `request` > `session` > `developer` > `system`.
+- Поддерживаются 4 слоя: `system`, `developer`, `session`, `request`.
+- Приоритет: `request > session > developer > system`.
 
-## 8. Устойчивость, лимиты и hooks
+## 8. Устойчивость и hooks
 
-Параметры `LlmClientResilienceOptions`:
+`LlmClientResilienceOptions`:
 - `MaxRetries` (default `2`)
 - `InitialBackoff` / `MaxBackoff` / `UseJitter`
 - `RequestTimeout`
 - `MaxConcurrentRequests`
 - `MinDelayBetweenRequests`
-- `ShouldRetry` (кастомный predicate)
+- `ShouldRetry`
 
-События `ILlmEventHook`:
-- `OnStartAsync(requestId, correlationId, ...)`
-- `OnEndAsync(requestId, correlationId, ...)`
-- `OnErrorAsync(requestId, correlationId, exception, ...)`
+`ILlmEventHook`:
+- `OnStartAsync`
+- `OnEndAsync`
+- `OnErrorAsync`
 
 Безопасность:
-- `SecretRedactor` маскирует bearer/api key/token/secret в текстах и исключениях.
+- `SecretRedactor` маскирует bearer/api key/token/secret в сообщениях ошибок.
 
-## 9. MCP tools
+## 9. MCP
 
 `MultiLlm.Tools.Mcp` содержит `StdioMcpClient`:
-- запускает MCP server как subprocess (`Command` + `Arguments`),
-- выполняет handshake (`initialize` + `notifications/initialized`),
-- дает API:
+- запускает MCP server subprocess (`Command` + `Arguments`),
+- делает handshake (`initialize` + `notifications/initialized`),
+- предоставляет:
   - `GetToolsAsync()`
-  - `CallToolAsync(toolName, argumentsJson)`.
+  - `CallToolAsync(toolName, argumentsJson)`
 
-Опции подключения:
-- `Command`, `Arguments`, `WorkingDirectory`,
-- `EnvironmentVariables`,
-- `RequestTimeout`,
-- `ClientName`, `ClientVersion`, `ProtocolVersion`.
+Опции:
+- `Command`, `Arguments`, `WorkingDirectory`
+- `EnvironmentVariables`
+- `RequestTimeout`
+- `ClientName`, `ClientVersion`, `ProtocolVersion`
 
-## 10. Примеры
+## 10. Примеры запуска
 
-### ConsoleChat (Codex auth)
+Codex:
 ```bash
 dotnet run --project examples/ConsoleChat -- --model gpt-5-codex --auth codex
 ```
 
-### ConsoleChat (API key)
+API key:
 ```bash
 dotnet run --project examples/ConsoleChat -- --model gpt-5-mini --auth apikey --api-key <KEY>
 ```
 
-### ConsoleChat (без auth, для локального endpoint)
+Локальный endpoint без auth:
 ```bash
 dotnet run --project examples/ConsoleChat -- --model llama3.1:8b --auth none --base-url http://localhost:11434/v1
 ```
 
-### McpDemo
+MCP demo:
 ```bash
 dotnet run --project examples/McpDemo
 ```
 
-## 11. Тестирование
+## 11. Тесты
 
-В проекте есть unit и integration тесты (xUnit):
-- `MultiLlm.Core.Tests`:
-  - роутинг и поведение `LlmClient`,
-  - instruction layers,
-  - resilience pipeline,
-  - auth strategies,
-  - token store,
-  - Codex auth/backend slot,
-  - mapper OpenAI-compatible.
-- `MultiLlm.Integration.Tests`:
-  - OpenAI-compatible provider (sync + stream),
-  - кросс-провайдерные сценарии,
-  - MCP client end-to-end через mock server.
+`MultiLlm.Core.Tests` покрывает:
+- роутинг `LlmClient`,
+- instruction layers,
+- resilience pipeline,
+- auth strategies,
+- token store,
+- Codex auth/backend slot,
+- OpenAI-compatible mapper.
 
-## 12. Ограничения и roadmap
+`MultiLlm.Integration.Tests` покрывает:
+- OpenAI-compatible provider (sync + stream),
+- кросс-провайдерные сценарии,
+- MCP client end-to-end с mock server.
 
-### Ограничения на текущем этапе
-- OpenAI official provider и Ollama native provider пока не реализованы.
-- Обработка изображений вынесена в отдельный модуль, но находится на ранней стадии.
-- DI-расширения для автоконфигурации провайдеров пока не вынесены в отдельные extension methods.
+## 12. Ограничения
 
-### Ближайшие шаги
-- Реализовать `OpenAiProvider` на official SDK.
-- Реализовать `OllamaNativeProvider`.
-- Расширить интеграцию image/file multimodal flow.
-- Добавить publish/packaging workflow для NuGet-пакетов.
+- OpenAI official provider и Ollama native provider не реализованы.
+- Image processing extras пока на раннем этапе.
+- Нет отдельного DI-пакета с extension methods для полной автоконфигурации.
+
+## 13. Git/Codex push setup
+
+Для глобальной и репозиторной настройки push/pull Codex CLI на Windows см.:
+- `docs/codex-git-setup.md`
+
+Критично:
+- не коммитить `.git/.codex-credentials`,
+- если PAT попал в логи или чат, немедленно отозвать и создать новый.
 
 ## Дополнительные документы
-- Техническое задание: `MultiLlm_TZ.ModelRouter.md`
-- Процесс разработки: `docs/codex-web-playbook.md`
+
+- Technical specification: `MultiLlm_TZ.ModelRouter.md`
+- Codex workflow notes: `docs/codex-web-playbook.md`
