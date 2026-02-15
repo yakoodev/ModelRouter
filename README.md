@@ -108,6 +108,19 @@ dotnet build MultiLlm.slnx
 dotnet test MultiLlm.slnx
 ```
 
+NuGet-пакеты (core + провайдеры):
+
+```bash
+dotnet pack MultiLlm.slnx -c Release
+```
+
+Собираются пакеты:
+- `MultiLlm` (общий core-контракт и клиент)
+- `MultiLlm.Provider.OpenAI`
+- `MultiLlm.Provider.OpenAICompatible`
+- `MultiLlm.Provider.Ollama`
+- `MultiLlm.Provider.Codex`
+
 ## 5. РџСЂРёРјРµСЂ РёСЃРїРѕР»СЊР·РѕРІР°РЅРёСЏ API
 
 ```csharp

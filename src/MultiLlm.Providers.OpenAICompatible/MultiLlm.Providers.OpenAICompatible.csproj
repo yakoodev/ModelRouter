@@ -8,6 +8,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>MultiLlm.Provider.OpenAICompatible</PackageId>
+    <Description>OpenAI-compatible HTTP provider for MultiLlm with sync and streaming chat support.</Description>
   </PropertyGroup>
 
 </Project>

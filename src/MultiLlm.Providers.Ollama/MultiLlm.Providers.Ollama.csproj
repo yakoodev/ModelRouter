@@ -9,6 +9,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <IsPackable>true</IsPackable>
+    <PackageId>MultiLlm.Provider.Ollama</PackageId>
+    <Description>Ollama provider adapters for MultiLlm, including OpenAI-compatible routing.</Description>
   </PropertyGroup>
 
 </Project>

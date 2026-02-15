@@ -5,5 +5,13 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>preview</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Authors>yakoodev</Authors>
+    <Company>yakoodev</Company>
+    <RepositoryType>git</RepositoryType>
+    <RepositoryUrl>https://github.com/yakoodev/ModelRouter</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/yakoodev/ModelRouter</PackageProjectUrl>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <PackageTags>llm;ai;dotnet;openai;ollama;codex</PackageTags>
   </PropertyGroup>
 </Project>
