@@ -2,6 +2,8 @@ using MultiLlm.Core.Abstractions;
 using MultiLlm.Core.Contracts;
 using MultiLlm.Providers.Codex;
 using MultiLlm.Providers.OpenAICompatible;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 
 var options = ConsoleChatOptions.From(args, Environment.GetEnvironmentVariables());
 
@@ -75,6 +77,7 @@ internal static class ProviderFactory
 internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions options)
 {
     private readonly List<Message> _messages = [];
+    private readonly List<ImagePart> _pendingImages = [];
 
     public async Task RunAsync(CancellationToken cancellationToken = default)
     {
@@ -117,13 +120,30 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
             return true;
         }
 
+        if (input.StartsWith("/image-file", StringComparison.OrdinalIgnoreCase))
+        {
+            HandleImageFileCommand(input);
+            return true;
+        }
+
+        if (string.Equals(input, "/image-clipboard", StringComparison.OrdinalIgnoreCase))
+        {
+            HandleImageClipboardCommand();
+            return true;
+        }
+
         return string.IsNullOrWhiteSpace(input);
     }
 
     private async Task SendUserMessageAsync(string userInput, CancellationToken cancellationToken)
     {
-        var userMessage = new Message(MessageRole.User, [new TextPart(userInput)]);
+        var messageParts = new List<MessagePart> { new TextPart(userInput) };
+        messageParts.AddRange(_pendingImages);
+
+        var userMessage = new Message(MessageRole.User, messageParts);
         _messages.Add(userMessage);
+        var attachedImagesCount = _pendingImages.Count;
+        _pendingImages.Clear();
 
         var request = new ChatRequest(
             Model: $"{options.ProviderId}/{options.Model}",
@@ -138,6 +158,12 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
                 var completeText = await StreamAndCollectAsync(request, cancellationToken).ConfigureAwait(false);
                 _messages.Add(new Message(MessageRole.Assistant, [new TextPart(completeText)]));
                 Console.WriteLine();
+
+                if (attachedImagesCount > 0)
+                {
+                    Console.WriteLine($"(к сообщению было прикреплено изображений: {attachedImagesCount})");
+                }
+
                 return;
             }
 
@@ -145,6 +171,11 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
             var responseText = ExtractText(response.Message);
             Console.WriteLine(responseText);
             _messages.Add(response.Message);
+
+            if (attachedImagesCount > 0)
+            {
+                Console.WriteLine($"(к сообщению было прикреплено изображений: {attachedImagesCount})");
+            }
         }
         catch (Exception exception)
         {
@@ -189,7 +220,55 @@ internal sealed class ConsoleChatSession(ILlmClient client, ConsoleChatOptions o
 
     private static void PrintCommands()
     {
-        Console.WriteLine("Команды: /help, /clear, /exit");
+        Console.WriteLine("Команды: /help, /clear, /exit, /image-file <путь>, /image-clipboard");
+        Console.WriteLine("Загрузите одно или несколько изображений, затем отправьте текст — картинки уйдут вместе с этим сообщением.");
+    }
+
+    private void HandleImageFileCommand(string input)
+    {
+        var rawPath = input.Length > "/image-file".Length
+            ? input["/image-file".Length..].Trim()
+            : string.Empty;
+
+        if (string.IsNullOrWhiteSpace(rawPath))
+        {
+            Console.Write("Путь к файлу изображения: ");
+            rawPath = Console.ReadLine()?.Trim() ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(rawPath))
+        {
+            Console.WriteLine("Путь не указан.");
+            return;
+        }
+
+        var normalizedPath = rawPath.Trim('"');
+        if (!File.Exists(normalizedPath))
+        {
+            Console.WriteLine($"Файл не найден: {normalizedPath}");
+            return;
+        }
+
+        if (!ImageLoader.TryCreateImagePartFromFile(normalizedPath, out var imagePart, out var error))
+        {
+            Console.WriteLine(error);
+            return;
+        }
+
+        _pendingImages.Add(imagePart!);
+        Console.WriteLine($"Изображение добавлено: {Path.GetFileName(normalizedPath)} (ожидает отправки)");
+    }
+
+    private void HandleImageClipboardCommand()
+    {
+        if (!ImageLoader.TryCreateImagePartFromClipboard(out var imagePart, out var error))
+        {
+            Console.WriteLine(error);
+            return;
+        }
+
+        _pendingImages.Add(imagePart!);
+        Console.WriteLine("Изображение из буфера обмена добавлено (ожидает отправки).");
     }
 }
 
@@ -252,11 +331,12 @@ internal sealed record ConsoleChatOptions(
     public static void PrintUsage()
     {
         Console.WriteLine("Пример запуска (через codex cli login, ChatGPT backend):");
-        Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-mini --auth codex");
+        Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-codex --auth codex");
         Console.WriteLine("Пример запуска (через API ключ):");
         Console.WriteLine("dotnet run --project examples/ConsoleChat -- --model gpt-5-mini --auth apikey --api-key <KEY>");
         Console.WriteLine("Опции: --provider, --base-url, --model, --stream, --auth [codex|apikey|none], --codex-home.");
         Console.WriteLine("Env: LLM_MODEL, LLM_BASE_URL, OPENAI_API_KEY, CODEX_HOME.");
+        Console.WriteLine("В чате: /image-file <путь> или /image-clipboard для прикрепления изображения к следующему сообщению.");
     }
 
     private static AuthMode ParseAuthMode(string? value)
@@ -274,6 +354,127 @@ internal sealed record ConsoleChatOptions(
             "none" => AuthMode.None,
             _ => AuthMode.Codex
         };
+    }
+}
+
+internal static class ImageLoader
+{
+    private static readonly HashSet<string> SupportedImageExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif"
+    };
+
+    public static bool TryCreateImagePartFromFile(string path, out ImagePart? imagePart, out string? error)
+    {
+        imagePart = null;
+        error = null;
+
+        var extension = Path.GetExtension(path);
+        if (!SupportedImageExtensions.Contains(extension))
+        {
+            error = "Поддерживаются только: .png, .jpg, .jpeg, .webp, .gif.";
+            return false;
+        }
+
+        var mimeType = extension.ToLowerInvariant() switch
+        {
+            ".png" => "image/png",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".webp" => "image/webp",
+            ".gif" => "image/gif",
+            _ => string.Empty
+        };
+
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            imagePart = new ImagePart(mimeType, bytes, Path.GetFileName(path));
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = $"Не удалось прочитать файл изображения: {exception.Message}";
+            return false;
+        }
+    }
+
+    public static bool TryCreateImagePartFromClipboard(out ImagePart? imagePart, out string? error)
+    {
+        imagePart = null;
+        error = null;
+
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            error = "Буфер обмена с изображениями сейчас поддерживается только на Windows.";
+            return false;
+        }
+
+        const string command = "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8;" +
+            "Add-Type -AssemblyName System.Windows.Forms;" +
+            "Add-Type -AssemblyName System.Drawing;" +
+            "if (-not [System.Windows.Forms.Clipboard]::ContainsImage()) { exit 10 };" +
+            "$image=[System.Windows.Forms.Clipboard]::GetImage();" +
+            "$ms=New-Object System.IO.MemoryStream;" +
+            "$image.Save($ms,[System.Drawing.Imaging.ImageFormat]::Png);" +
+            "$bytes=$ms.ToArray();" +
+            "[Console]::OpenStandardOutput().Write($bytes,0,$bytes.Length);";
+
+        try
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell",
+                Arguments = $"-NoProfile -NonInteractive -Command \"{command}\"",
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            using var process = Process.Start(startInfo);
+            if (process is null)
+            {
+                error = "Не удалось запустить powershell для чтения буфера обмена.";
+                return false;
+            }
+
+            using var ms = new MemoryStream();
+            process.StandardOutput.BaseStream.CopyTo(ms);
+            var stderr = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+
+            if (process.ExitCode == 10)
+            {
+                error = "В буфере обмена нет изображения.";
+                return false;
+            }
+
+            if (process.ExitCode != 0)
+            {
+                error = string.IsNullOrWhiteSpace(stderr)
+                    ? $"Ошибка чтения буфера обмена, код: {process.ExitCode}."
+                    : $"Ошибка чтения буфера обмена: {stderr.Trim()}";
+                return false;
+            }
+
+            if (ms.Length == 0)
+            {
+                error = "В буфере обмена не найдено изображение.";
+                return false;
+            }
+
+            imagePart = new ImagePart("image/png", ms.ToArray(), "clipboard.png");
+            return true;
+        }
+        catch (Exception exception)
+        {
+            error = $"Не удалось получить изображение из буфера обмена: {exception.Message}";
+            return false;
+        }
     }
 }
 

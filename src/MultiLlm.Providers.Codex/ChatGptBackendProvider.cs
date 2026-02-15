@@ -10,6 +10,15 @@ namespace MultiLlm.Providers.Codex;
 internal sealed class ChatGptBackendProvider : IModelProvider
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private const int MaxImageBytes = 20 * 1024 * 1024;
+    private static readonly HashSet<string> SupportedImageMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "image/png",
+        "image/jpeg",
+        "image/webp",
+        "image/gif"
+    };
+
     private readonly HttpClient _httpClient;
     private readonly CodexProviderOptions _options;
     private readonly string _accessToken;
@@ -97,7 +106,6 @@ internal sealed class ChatGptBackendProvider : IModelProvider
 
     private object BuildPayload(ChatRequest request, bool stream)
     {
-        // 1) Собираем инструкции из System + Developer
         var instructions = string.Join("\n\n", request.Messages
             .Where(m => m.Role is MessageRole.System or MessageRole.Developer)
             .SelectMany(m => m.Parts.OfType<TextPart>())
@@ -106,20 +114,18 @@ internal sealed class ChatGptBackendProvider : IModelProvider
 
         if (string.IsNullOrWhiteSpace(instructions))
         {
-            // Дефолт — чтобы бекенд не истерил "Instructions are required"
             instructions = "You are a helpful assistant.";
         }
 
-        // 2) В input оставляем только user/assistant (без system/developer)
         var input = request.Messages
             .Where(m => m.Role is MessageRole.User or MessageRole.Assistant)
-            .Select(static message => new
+            .Select(message => new
             {
                 type = "message",
                 role = MapRole(message.Role),
                 content = message.Parts
-                    .OfType<TextPart>()
-                    .Select(part => new { type = ResolveContentType(message.Role), text = part.Text })
+                    .Select(part => MapInputContentPart(message.Role, part))
+                    .Where(static part => part is not null)
                     .ToArray()
             })
             .Where(static item => item.content.Length > 0)
@@ -134,7 +140,6 @@ internal sealed class ChatGptBackendProvider : IModelProvider
             store = false
         };
     }
-
 
     private HttpRequestMessage CreateHttpRequest(object payload)
     {
@@ -189,6 +194,46 @@ internal sealed class ChatGptBackendProvider : IModelProvider
         {
             MessageRole.Assistant => "output_text",
             _ => "input_text"
+        };
+    }
+
+    private static object? MapInputContentPart(MessageRole role, MessagePart part)
+    {
+        if (part is TextPart text)
+        {
+            return new
+            {
+                type = ResolveContentType(role),
+                text = text.Text
+            };
+        }
+
+        if (role is MessageRole.User && part is ImagePart image)
+        {
+            return MapUserImagePart(image);
+        }
+
+        throw new NotSupportedException(
+            $"Message part '{part.GetType().Name}' is not supported for role '{role}' in ChatGPT backend payload.");
+    }
+
+    private static object MapUserImagePart(ImagePart image)
+    {
+        if (!SupportedImageMimeTypes.Contains(image.MimeType))
+        {
+            throw new NotSupportedException(
+                $"Image mime type '{image.MimeType}' is not supported. Supported: {string.Join(", ", SupportedImageMimeTypes)}.");
+        }
+
+        if (image.Content.Length > MaxImageBytes)
+        {
+            throw new ArgumentException($"Image size exceeds maximum of {MaxImageBytes} bytes.", nameof(image));
+        }
+
+        return new
+        {
+            type = "input_image",
+            image_url = $"data:{image.MimeType};base64,{Convert.ToBase64String(image.Content)}"
         };
     }
 
