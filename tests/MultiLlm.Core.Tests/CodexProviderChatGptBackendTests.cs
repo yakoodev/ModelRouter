@@ -98,6 +98,50 @@ public class CodexProviderChatGptBackendTests
         ));
     }
 
+    [Fact]
+    public async Task ChatAsync_EncodesUserImageAsInputImage()
+    {
+        var handler = new StubHandler(static request =>
+        {
+            var body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            Assert.Contains("\"type\":\"input_image\"", body, StringComparison.Ordinal);
+            Assert.Contains("\"image_url\":\"data:image/png;base64,", body, StringComparison.Ordinal);
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"output_text\":\"ok\"}", Encoding.UTF8, "application/json")
+            };
+        });
+
+        var httpClient = new HttpClient(handler);
+        var options = new CodexProviderOptions
+        {
+            BaseUrl = "https://chatgpt.com/backend-api/codex/",
+            Model = "gpt-5-mini",
+            UseChatGptBackend = true
+        };
+
+        var store = new InMemoryTokenStore([
+            new KeyValuePair<string, AuthToken>(
+                OfficialDeviceCodeBackend.DeviceTokenStoreKey,
+                new AuthToken("device-token", null, "refresh-token"))
+        ]);
+
+        var provider = new CodexProvider(options, [new NoOpOfficialBackend()], store, httpClient);
+
+        await provider.ChatAsync(new ChatRequest(
+            Model: "gpt-5-mini",
+            Messages:
+            [
+                new Message(MessageRole.User,
+                [
+                    new TextPart("what is in the image?"),
+                    new ImagePart("image/png", [1, 2, 3, 4])
+                ])
+            ]
+        ));
+    }
+
     private sealed class NoOpOfficialBackend : ICodexAuthBackend
     {
         public string BackendId => OfficialDeviceCodeBackend.BackendIdValue;
