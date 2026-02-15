@@ -17,7 +17,7 @@ public static class CodexProviderBuilderExtensions
         ICodexAuthBackend[] backends =
         [
             new OfficialDeviceCodeBackend(options),
-            new ExperimentalAuthBackend(options)
+            new ExperimentalAuthBackend()
         ];
 
         return builder.Configure(new CodexProvider(options, backends, tokenStore, httpClient));
