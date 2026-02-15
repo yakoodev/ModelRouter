@@ -25,8 +25,7 @@ if (!options.IsValid(out var validationError))
     return;
 }
 
-var provider = ProviderFactory.Create(options);
-var client = new LlmClient([provider]);
+var client = ClientFactory.Create(options);
 var session = new ConsoleChatSession(client, options);
 
 await session.RunAsync();
@@ -228,19 +227,21 @@ internal static class ConsoleChatSetup
     }
 }
 
-internal static class ProviderFactory
+internal static class ClientFactory
 {
-    public static IModelProvider Create(ConsoleChatOptions options)
+    public static ILlmClient Create(ConsoleChatOptions options)
     {
+        var builder = LlmClientBuilder.Create();
+
         return options.AuthMode switch
         {
-            AuthMode.Codex => CreateCodexProvider(options),
-            AuthMode.ApiKey => CreateOpenAiCompatibleProvider(options, requireApiKey: true),
-            _ => CreateOpenAiCompatibleProvider(options, requireApiKey: false)
+            AuthMode.Codex => ConfigureCodex(builder, options).Build(),
+            AuthMode.ApiKey => ConfigureOpenAiCompatible(builder, options, requireApiKey: true).Build(),
+            _ => ConfigureOpenAiCompatible(builder, options, requireApiKey: false).Build()
         };
     }
 
-    private static IModelProvider CreateCodexProvider(ConsoleChatOptions options)
+    private static LlmClientBuilder ConfigureCodex(LlmClientBuilder builder, ConsoleChatOptions options)
     {
         var codexOptions = new CodexProviderOptions(
             IsDevelopment: true,
@@ -253,10 +254,13 @@ internal static class ProviderFactory
             UseChatGptBackend = true
         };
 
-        return new CodexProvider(codexOptions, [new OfficialDeviceCodeBackend(codexOptions)]);
+        return builder.Configure(codexOptions);
     }
 
-    private static IModelProvider CreateOpenAiCompatibleProvider(ConsoleChatOptions options, bool requireApiKey)
+    private static LlmClientBuilder ConfigureOpenAiCompatible(
+        LlmClientBuilder builder,
+        ConsoleChatOptions options,
+        bool requireApiKey)
     {
         if (requireApiKey && string.IsNullOrWhiteSpace(options.ApiKey))
         {
@@ -270,7 +274,7 @@ internal static class ProviderFactory
                 ["Authorization"] = $"Bearer {options.ApiKey}"
             };
 
-        return new OpenAiCompatibleProvider(new OpenAiCompatibleProviderOptions
+        return builder.Configure(new OpenAiCompatibleProviderOptions
         {
             ProviderId = options.ProviderId,
             BaseUrl = options.BaseUrl,
