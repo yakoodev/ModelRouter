@@ -34,7 +34,7 @@ English version: `README.en.md`
   - instruction layers (`system`, `developer`, `session`, `request`),
   - hooks (`OnStart`, `OnEnd`, `OnError`) + СЂРµРґР°РєС‚РёСЂРѕРІР°РЅРёРµ СЃРµРєСЂРµС‚РѕРІ.
 - `MultiLlm.Providers.OpenAI`:
-  - официальный .NET SDK adapter (sync + streaming),
+  - РѕС„РёС†РёР°Р»СЊРЅС‹Р№ .NET SDK adapter (sync + streaming),
 - `MultiLlm.Providers.OpenAICompatible`:
   - sync chat (`/chat/completions`),
   - streaming SSE (`data: ...`, `[DONE]`),
@@ -108,14 +108,14 @@ dotnet build MultiLlm.slnx
 dotnet test MultiLlm.slnx
 ```
 
-NuGet-пакеты (core + провайдеры):
+NuGet-РїР°РєРµС‚С‹ (core + РїСЂРѕРІР°Р№РґРµСЂС‹):
 
 ```bash
 dotnet pack MultiLlm.slnx -c Release
 ```
 
-Собираются пакеты:
-- `MultiLlm` (общий core-контракт и клиент)
+РЎРѕР±СЂР°РЅРЅС‹Рµ РїР°РєРµС‚С‹:
+- `MultiLlm` (core-РєРѕРЅС‚СЂР°РєС‚С‹ Рё РєР»РёРµРЅС‚)
 - `MultiLlm.Provider.OpenAI`
 - `MultiLlm.Provider.OpenAICompatible`
 - `MultiLlm.Provider.Ollama`
@@ -249,12 +249,12 @@ Console.WriteLine(text);
 
 ## 10. РџСЂРёРјРµСЂС‹ Р·Р°РїСѓСЃРєР°
 
-Интерактивный запуск (настройка роута в приложении):
+РРЅС‚РµСЂР°РєС‚РёРІРЅС‹Р№ СЂРµР¶РёРј (РЅР°СЃС‚СЂРѕР№РєР° РјР°СЂС€СЂСѓС‚Р° РІ РїСЂРёР»РѕР¶РµРЅРёРё):
 ```bash
 dotnet run --project examples/ConsoleChat
 ```
 
-Codex (прямой запуск):
+Codex (РїСЂСЏРјРѕР№ Р·Р°РїСѓСЃРє):
 ```bash
 dotnet run --project examples/ConsoleChat -- --model gpt-5-codex --auth codex
 ```
